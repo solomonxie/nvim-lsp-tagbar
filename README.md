@@ -11,10 +11,6 @@ process, no other plugin dependency.
 - The bar opens with the cursor already on the symbol you're in, and keeps
   following it as you move — no need to hunt for where you are.
 
-## Screenshot
-
-_(coming soon)_
-
 ## Requirements
 
 - Neovim >= 0.8
@@ -78,3 +74,7 @@ number to the label shown in the bar; a kind not listed here is dropped.
 The shipped `syntax/lsptagbar.vim` highlights the default `[C]`/`[M]`/`[F]`/`[K]`/`[S]`
 labels specifically — overriding `kinds` loses that highlighting unless you
 also adjust the syntax file.
+
+## Screenshot
+
+![nvim-lsp-tagbar](./screenshot.png)

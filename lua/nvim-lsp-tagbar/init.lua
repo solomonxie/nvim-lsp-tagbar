@@ -210,6 +210,10 @@ function M.open()
     vim.bo[M.buf].filetype = 'lsptagbar'
     vim.wo[M.win].number = false
     vim.wo[M.win].wrap = false
+    -- Without this, any later window-layout change ('<C-w>=', a new split,
+    -- closing a window) re-equalizes every window and the bar loses its
+    -- configured height.
+    vim.wo[M.win].winfixheight = true
 
     local opts = { buffer = M.buf, silent = true }
     vim.keymap.set('n', '<CR>', goto_jump, opts)

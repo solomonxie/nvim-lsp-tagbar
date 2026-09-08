@@ -8,6 +8,7 @@ local M = {}
 
 M.win, M.buf, M.src_win, M.src_buf = nil, nil, nil, nil
 M._keymap = nil
+M._configured = false
 
 local CURSOR_NS = vim.api.nvim_create_namespace('lsptagbar_cursor')
 
@@ -264,6 +265,7 @@ vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
 })
 
 function M.setup(opts)
+    M._configured = true
     config.setup(opts)
     if M._keymap then
         pcall(vim.keymap.del, 'n', M._keymap)

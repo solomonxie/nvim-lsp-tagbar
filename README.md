@@ -10,12 +10,15 @@ process, no other plugin dependency.
   references to a name are dropped, not just definitions.
 - The bar opens with the cursor already on the symbol you're in, and keeps
   following it as you move — no need to hunt for where you are.
+- Markdown (and other markup filetypes) get a section outline from their
+  `#` headings instead — no LSP needed, code fences ignored.
 
 ## Requirements
 
 - Neovim >= 0.8
 - An LSP client attached to the buffer that supports
-  `textDocument/documentSymbol`
+  `textDocument/documentSymbol` — except for `heading_filetypes`, which need
+  nothing at all
 
 ## Install
 
@@ -58,6 +61,8 @@ require('nvim-lsp-tagbar').setup({
 {
   keymap = 'ft',
   height = 20,
+  heading_filetypes = { 'markdown', 'rmd', 'quarto', 'vimwiki' },
+  heading_label = '[H%d]',
   kinds = {
     [5] = '[C]',   -- Class
     [6] = '[M]',   -- Method
@@ -69,9 +74,13 @@ require('nvim-lsp-tagbar').setup({
 }
 ```
 
+`heading_filetypes` are outlined from their `#` headings (nested by level,
+`%d` in `heading_label` is that level) and never query an LSP; set it to `{}`
+to always use LSP symbols.
+
 `kinds` maps an [LSP `SymbolKind`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#symbolKind)
 number to the label shown in the bar; a kind not listed here is dropped.
-The shipped `syntax/lsptagbar.vim` highlights the default `[C]`/`[M]`/`[F]`/`[K]`/`[S]`
+The shipped `syntax/lsptagbar.vim` highlights the default `[C]`/`[M]`/`[F]`/`[K]`/`[S]`/`[H1-6]`
 labels specifically — overriding `kinds` loses that highlighting unless you
 also adjust the syntax file.
 

@@ -3,6 +3,7 @@
 -- to configured kinds. No ctags, no plugin dependency.
 
 local config = require('nvim-lsp-tagbar.config')
+local markup = require('nvim-lsp-tagbar.markup')
 
 local M = {}
 
@@ -77,8 +78,11 @@ end
 
 local function build_lines(list, depth, parent_idx, lines, jumps)
     for _, s in ipairs(list) do
-        local label = config.options.kinds[s.kind]
-        local kept = label and not is_bare_reference(s) and not is_import_node(jump_pos(s))
+        -- markup heading nodes carry their own label; the reference/import
+        -- filters only make sense for LSP symbols.
+        local label = s.label or config.options.kinds[s.kind]
+        local kept = label and (s.label ~= nil
+            or (not is_bare_reference(s) and not is_import_node(jump_pos(s))))
         local child_parent_idx = parent_idx
         if kept then
             table.insert(lines, string.rep('  ', depth) .. label .. ' ' .. s.name)
@@ -183,6 +187,11 @@ end
 
 function M.refresh()
     if not (M.buf and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf)) then
+        return
+    end
+    if markup.handles(M.src_buf) then
+        render(markup.outline(M.src_buf), 'No headings')
+        M.sync_cursor()
         return
     end
     if not next(vim.lsp.get_clients({ bufnr = M.src_buf, method = 'textDocument/documentSymbol' })) then

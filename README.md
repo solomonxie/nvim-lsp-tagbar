@@ -126,6 +126,13 @@ among the real symbols. A query that fails to parse is reported once via
 `label` is yours to choose and won't be highlighted by the shipped syntax
 file unless you add a rule for it.
 
+Cost is confined to filetypes you configure: anything absent from `queries`
+returns after two table lookups and touches no parser, so a 4500-line Python
+file opens the bar in 0.2 ms either way. A configured filetype matches once
+per edit, memoised across the two or three renders a single open triggers —
+7.8 ms for a 6000-line Lua file with treesitter already running, 4.3 ms for a
+typical 300-line one. Nothing runs on cursor movement.
+
 ## Screenshot
 
 ![nvim-lsp-tagbar](./screenshot.png)

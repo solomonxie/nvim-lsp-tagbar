@@ -10,6 +10,11 @@ local config = require('nvim-lsp-tagbar.config')
 
 local M = {}
 
+-- The bar renders the same buffer two or three times per open (placeholder,
+-- then once per responding client), so matching is memoised until the buffer
+-- changes. One slot is enough: only ever one source buffer is on screen.
+local cache = {}
+
 local function pos(line, character)
     return { line = line, character = character }
 end
@@ -29,20 +34,13 @@ local function match_node(match, id)
     return nodes
 end
 
-function M.outline(buf)
-    local ft = vim.bo[buf].filetype
-    local specs = config.options.queries[ft]
-    if not specs or vim.tbl_isempty(specs) then
-        return {}
-    end
+local function collect(buf, ft, specs, out)
     local ok, parser = pcall(vim.treesitter.get_parser, buf, ft)
     if not ok or not parser then
-        return {}
+        return
     end
     local root = parser:parse()[1]:root()
     local lang = parser:lang()
-
-    local out = {}
     for _, spec in ipairs(specs) do
         local ok_q, query = pcall(vim.treesitter.query.parse, lang, spec.query)
         if not ok_q then
@@ -67,6 +65,25 @@ function M.outline(buf)
             end
         end
     end
+end
+
+function M.outline(buf)
+    local ft = vim.bo[buf].filetype
+    local specs = config.options.queries[ft]
+    -- Kept ahead of everything else: a filetype with no queries configured
+    -- must cost two table lookups and no treesitter work at all.
+    if not specs or vim.tbl_isempty(specs) then
+        return {}
+    end
+    local tick = vim.api.nvim_buf_get_changedtick(buf)
+    if cache.buf == buf and cache.tick == tick then
+        return cache.out
+    end
+    -- Cached on every path, so a configured filetype whose parser is missing
+    -- retries once per edit rather than once per render.
+    local out = {}
+    collect(buf, ft, specs, out)
+    cache.buf, cache.tick, cache.out = buf, tick, out
     return out
 end
 

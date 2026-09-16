@@ -4,6 +4,7 @@
 
 local config = require('nvim-lsp-tagbar.config')
 local markup = require('nvim-lsp-tagbar.markup')
+local queries = require('nvim-lsp-tagbar.queries')
 
 local M = {}
 
@@ -165,15 +166,59 @@ function M.sync_cursor()
     vim.api.nvim_win_set_cursor(M.win, { idx, 0 })
 end
 
+local function symbol_range(s)
+    return s.range or (s.location and s.location.range)
+end
+
+local function contains(outer, inner)
+    return outer and (inner.start.line >= outer.start.line and inner['end'].line <= outer['end'].line)
+end
+
+-- Query-matched entries carry a range but no place in the server's tree.
+-- Recursing before falling back lands each one under the deepest symbol
+-- that contains it, which is where a server would have put it.
+local function insert_by_range(tree, node)
+    for _, s in ipairs(tree) do
+        if contains(symbol_range(s), node.range) then
+            s.children = s.children or {}
+            insert_by_range(s.children, node)
+            return
+        end
+    end
+    table.insert(tree, node)
+end
+
+local function sort_by_line(tree)
+    table.sort(tree, function(a, b)
+        return symbol_range(a).start.line < symbol_range(b).start.line
+    end)
+    for _, s in ipairs(tree) do
+        if s.children and #s.children > 0 then
+            sort_by_line(s.children)
+        end
+    end
+end
+
 local function render(result, empty_msg)
     if not (M.buf and vim.api.nvim_buf_is_valid(M.buf)) then
         return
     end
-    local lines, jumps = {}, {}
-    if not result or vim.tbl_isempty(result) then
+    local lines, jumps, tree = {}, {}, {}
+    if result and not vim.tbl_isempty(result) then
+        tree = is_document_symbol(result) and result or nest_by_container_name(result)
+    end
+    -- Merge after nesting, so a flat SymbolInformation tree is already
+    -- built and query entries can find their containing symbol.
+    local extra = M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf) and queries.outline(M.src_buf) or {}
+    if #extra > 0 then
+        for _, node in ipairs(extra) do
+            insert_by_range(tree, node)
+        end
+        sort_by_line(tree)
+    end
+    if vim.tbl_isempty(tree) then
         lines = { empty_msg or 'No symbols' }
     else
-        local tree = is_document_symbol(result) and result or nest_by_container_name(result)
         build_lines(tree, 0, nil, lines, jumps)
         if vim.tbl_isempty(lines) then
             lines = { 'No matching symbols' }

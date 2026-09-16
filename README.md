@@ -12,6 +12,8 @@ process, no other plugin dependency.
   following it as you move — no need to hunt for where you are.
 - Markdown (and other markup filetypes) get a section outline from their
   `#` headings instead — no LSP needed, code fences ignored.
+- Anything the server misses can be matched with your own treesitter
+  queries and merged into the tree (see [Custom entries](#custom-entries)).
 
 ## Requirements
 
@@ -63,6 +65,7 @@ require('nvim-lsp-tagbar').setup({
   height = 20,
   heading_filetypes = { 'markdown', 'rmd', 'quarto', 'vimwiki' },
   heading_label = '[H%d]',
+  queries = {},
   kinds = {
     [5] = '[C]',   -- Class
     [6] = '[M]',   -- Method
@@ -83,6 +86,45 @@ number to the label shown in the bar; a kind not listed here is dropped.
 The shipped `syntax/lsptagbar.vim` highlights the default `[C]`/`[M]`/`[F]`/`[K]`/`[S]`/`[H1-6]`
 labels specifically — overriding `kinds` loses that highlighting unless you
 also adjust the syntax file.
+
+## Custom entries
+
+Servers disagree on what deserves a symbol — `lua_ls` names an anonymous
+callback after the call it's passed to, `emmylua_ls` omits it entirely. Add
+`queries` to match those yourself:
+
+```lua
+require('nvim-lsp-tagbar').setup({
+  queries = {
+    lua = {
+      { label = '[U]', query = [[
+        ((function_call
+           name: (_) @fn
+           (#eq? @fn "vim.api.nvim_create_user_command")
+           arguments: (arguments (string content: (string_content) @name))) @scope)
+      ]] },
+    },
+  },
+})
+```
+
+```
+[U] LspTagbarToggle
+[U] LspTagbarDebug
+```
+
+- `@name` (required) — the text shown, and where `<CR>` jumps to.
+- `@scope` (optional) — the entry's range, so the bar highlights it while
+  the cursor is anywhere inside; defaults to `@name`'s own node.
+
+Matches are merged into the server's tree under the deepest symbol whose
+range contains them, then siblings are re-sorted by line — so a match inside
+a function nests under it, and one at file scope sits in document order
+among the real symbols. A query that fails to parse is reported once via
+`vim.notify` and skipped.
+
+`label` is yours to choose and won't be highlighted by the shipped syntax
+file unless you add a rule for it.
 
 ## Screenshot
 

@@ -3,8 +3,18 @@ local M = {}
 M.defaults = {
     -- normal-mode mapping to toggle the bar; set to false to disable
     keymap = 'ft',
+    -- where the bar opens: 'bottom' (a split of `height` lines) or 'right' (`width` columns)
+    position = 'bottom',
     -- bottom split height
     height = 20,
+    -- right split width
+    width = 40,
+    -- moving the cursor in the bar shows that symbol in the source window, keeping focus in the bar
+    auto_preview = false,
+    -- `o` on a tag lists its callers under it (LSP call hierarchy); callers in files matching these
+    -- Lua patterns are left out unless callers_include_tests is set
+    callers_include_tests = false,
+    callers_test_patterns = { '/tests?/', '/test_[^/]*$', '_test%.[^/]*$', '/conftest%.py$', '%.spec%.', '%.test%.' },
     -- filetypes whose outline comes from '#' headings instead of LSP symbols
     heading_filetypes = { 'markdown', 'rmd', 'quarto', 'vimwiki' },
     -- heading label shown in the bar; %d is the heading level
@@ -30,7 +40,7 @@ function M.setup(opts)
     -- deep_extend merges list-like tables by index, which would leave
     -- stale defaults past the end of a shorter user list, and would splice
     -- a user's queries together with any shipped later.
-    for _, key in ipairs({ 'heading_filetypes', 'queries' }) do
+    for _, key in ipairs({ 'heading_filetypes', 'queries', 'callers_test_patterns' }) do
         if opts and opts[key] then
             M.options[key] = opts[key]
         end

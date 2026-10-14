@@ -1,6 +1,6 @@
 # LSP Symbol Bar
 
-A bottom bar of the current buffer's classes, functions, and methods —
+A bottom (or right) bar of the current buffer's classes, functions, and methods —
 built entirely from `textDocument/documentSymbol`. No ctags, no external
 process, no other plugin dependency.
 
@@ -44,6 +44,8 @@ the defaults:
 require('nvim-lsp-tagbar').setup({
   keymap = 'ft',   -- false to disable the default mapping
   height = 20,
+  -- or a right sidebar that previews each symbol as you move over it:
+  -- position = 'right', width = 40, auto_preview = true,
 })
 ```
 
@@ -52,7 +54,14 @@ require('nvim-lsp-tagbar').setup({
 - `ft` (or `:LspTagbarToggle`) — toggle the bar
 - Inside the bar:
   - `<CR>` — jump to the symbol and close the bar
+  - `j` / `k` — with `auto_preview`, the source window follows to each symbol
   - `p` — jump to the enclosing symbol's line, within the bar
+  - `o` — show / hide who calls this symbol, inline under it (LSP call
+    hierarchy). A chain of single callers unfolds all the way up; press `o`
+    on any caller line to open its callers. `<CR>` on a caller jumps to the
+    call. Callers in tests are counted but not listed. For a Python method,
+    callers that go through a same-named method elsewhere (e.g. a Protocol)
+    are included, marked `(via file:line)`.
   - `q` / `<Esc>` — close the bar
 - `:LspTagbarDebug` — print internal state (buf/win validity, jump count)
   for troubleshooting, with the bar open and cursor inside a symbol
@@ -62,7 +71,12 @@ require('nvim-lsp-tagbar').setup({
 ```lua
 {
   keymap = 'ft',
-  height = 20,
+  position = 'bottom',   -- or 'right'
+  height = 20,           -- for 'bottom'
+  width = 40,            -- for 'right'
+  auto_preview = false,
+  callers_include_tests = false,
+  callers_test_patterns = { '/tests?/', '/test_[^/]*$', '_test%.[^/]*$', '/conftest%.py$', '%.spec%.', '%.test%.' },
   heading_filetypes = { 'markdown', 'rmd', 'quarto', 'vimwiki' },
   heading_label = '[H%d]',
   queries = {},

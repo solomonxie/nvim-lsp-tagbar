@@ -14,6 +14,8 @@ process, no other plugin dependency.
   `#` headings instead — no LSP needed, code fences ignored.
 - Anything the server misses can be matched with your own treesitter
   queries and merged into the tree (see [Custom entries](#custom-entries)).
+- Mark any line yourself with `@@ some text` in a comment or docstring and
+  it shows up as `[@] some text` (see [Markers](#markers)).
 
 ## Requirements
 
@@ -62,6 +64,11 @@ require('nvim-lsp-tagbar').setup({
     call. Callers in tests are counted but not listed. For a Python method,
     callers that go through a same-named method elsewhere (e.g. a Protocol)
     are included, marked `(via file:line)`.
+  - `@` — cycle what's listed: symbols with [markers](#markers) (the
+    default), markers only (flat), symbols only
+  - `?` — show / hide a quick help above the tree: these keys, the
+    current `@` view, the marker patterns for this filetype, and where the
+    entries come from (which LSP servers, treesitter queries, markers)
   - `q` / `<Esc>` — close the bar
 - `:LspTagbarDebug` — print internal state (buf/win validity, jump count)
   for troubleshooting, with the bar open and cursor inside a symbol
@@ -79,6 +86,8 @@ require('nvim-lsp-tagbar').setup({
   callers_test_patterns = { '/tests?/', '/test_[^/]*$', '_test%.[^/]*$', '/conftest%.py$', '%.spec%.', '%.test%.' },
   heading_filetypes = { 'markdown', 'rmd', 'quarto', 'vimwiki' },
   heading_label = '[H%d]',
+  markers = { ['*'] = { '@@%s*(.-)%s*$' } },
+  marker_label = '[@]',
   queries = {},
   kinds = {
     [5] = '[C]',   -- Class
@@ -146,6 +155,54 @@ file opens the bar in 0.2 ms either way. A configured filetype matches once
 per edit, memoised across the two or three renders a single open triggers —
 7.8 ms for a 6000-line Lua file with treesitter already running, 4.3 ms for a
 typical 300-line one. Nothing runs on cursor movement.
+
+## Markers
+
+Put `@@` and some text anywhere on a line, usually in a comment or
+docstring, and the bar lists it, nested under the function or class it's in:
+
+```python
+class Exporter:
+    def run(self):
+        # @@ retry loop starts here
+        ...
+
+def load():
+    """
+    @@ TODO: drop the v1 format
+    """
+```
+
+```
+[C] Exporter
+  [M] run
+    [@] retry loop starts here
+[F] load
+  [@] TODO: drop the v1 format
+```
+
+It's a plain line scan, so it works in any filetype, with or without an LSP
+or a treesitter parser. Change the marker, per filetype or for all of them
+(`'*'`), with Lua patterns whose first capture is the text shown:
+
+```lua
+require('nvim-lsp-tagbar').setup({
+  markers = {
+    ['*'] = { '@@%s*(.-)%s*$' },          -- the default
+    python = { '<!!%s*(.-)%s*>' },        -- `# <!!setup db>` in Python instead
+    diff = {},                            -- none in this filetype
+  },
+  marker_label = '[@]',
+})
+```
+
+`markers` replaces the default table as a whole, so keep `'*'` in it if you
+still want `@@` in other filetypes, or set `markers = {}` to turn markers off.
+The scan runs once per edit, memoised like the queries above.
+
+Press `@` in the bar to cycle through three views: symbols with markers
+nested in them, markers only (flat, in file order), and symbols only. The
+bar always opens in the first.
 
 ## Screenshot
 

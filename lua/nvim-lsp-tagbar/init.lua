@@ -5,6 +5,7 @@
 local config = require('nvim-lsp-tagbar.config')
 local markup = require('nvim-lsp-tagbar.markup')
 local queries = require('nvim-lsp-tagbar.queries')
+local markers = require('nvim-lsp-tagbar.markers')
 local callers = require('nvim-lsp-tagbar.callers')
 
 local M = {}
@@ -12,6 +13,13 @@ local M = {}
 M.win, M.buf, M.src_win, M.src_buf = nil, nil, nil, nil
 M._keymap = nil
 M._configured = false
+-- `@` in the bar cycles what's listed: symbols with markers nested in them,
+-- markers only (flat), then symbols only
+local VIEWS = { 'all', 'markers', 'symbols' }
+M.view = 'all'
+-- `?` in the bar shows a quick help block above the tree, NERDTree style
+M.help = false
+M.help_len = 0
 
 local CURSOR_NS = vim.api.nvim_create_namespace('lsptagbar_cursor')
 
@@ -127,7 +135,7 @@ end
 local function goto_jump()
     local jumps = vim.b[M.buf].jumps
     local entry = jumps[vim.api.nvim_win_get_cursor(0)[1]]
-    if not entry then
+    if not (entry and entry.pos) then
         return
     end
     local src_win = M.src_win
@@ -164,7 +172,7 @@ local function preview()
         return
     end
     local entry = (vim.b[M.buf].jumps or {})[vim.api.nvim_win_get_cursor(0)[1]]
-    if not entry then
+    if not (entry and entry.pos) then
         return
     end
     -- a caller in another file is shown in the source window too; the bar stays on M.src_buf, and the
@@ -273,6 +281,92 @@ local function expand(client, jumps, lnum, guard)
     end
 end
 
+-- Where the tree's entries come from, for the help block: which LSP servers
+-- answer documentSymbol, plus the markers and treesitter queries merged in.
+local function source_lines(ft)
+    if markup.handles(M.src_buf) then
+        return { '"   # headings (line scan, no LSP)' }
+    end
+    local names = {}
+    for _, client in ipairs(vim.lsp.get_clients({ bufnr = M.src_buf, method = 'textDocument/documentSymbol' })) do
+        names[#names + 1] = client.name
+    end
+    local out = { '"   LSP documentSymbol: ' .. (#names > 0 and table.concat(names, ', ') or 'none attached') }
+    if #names > 1 then
+        out[#out + 1] = '"     (each server re-renders the bar; the last to answer wins)'
+    end
+    local specs = config.options.queries[ft] or {}
+    if #specs > 0 then
+        out[#out + 1] = ('"   + treesitter queries: %d for %s'):format(#specs, ft)
+    end
+    out[#out + 1] = '"   + @@ markers (line scan); no ctags'
+    return out
+end
+
+local function help_lines()
+    local ft = vim.bo[M.src_buf].filetype
+    local markers_cfg = config.options.markers or {}
+    local patterns = markers_cfg[ft] or markers_cfg['*'] or {}
+    local lines = {
+        '" Keys (? to close)',
+        '"   <CR>  jump to symbol, close bar',
+        '"   j/k   move' .. (config.options.auto_preview and ', previewing in source' or ''),
+        '"   p     go to parent symbol',
+        '"   o     show / hide callers',
+        '"   @     cycle view: all > markers > symbols  [now: ' .. M.view .. ']',
+        '"   q     close',
+        '" Custom tags',
+        '"   write `@@ some text` in a comment or docstring',
+        '"   ' .. ft .. ' patterns: ' .. (#patterns > 0 and table.concat(patterns, '  ') or 'none (off)'),
+        '"   change via setup({ markers = { [ft] = { pattern } } })',
+        '"   label: ' .. config.options.marker_label,
+        '" Source',
+    }
+    vim.list_extend(lines, source_lines(ft))
+    lines[#lines + 1] = ''
+    return lines
+end
+
+-- Help lines sit above the tree with placeholder jumps (no pos, leaf), so
+-- every tree line keeps its index into `jumps` shifted by the help length.
+local function insert_help()
+    local lines = help_lines()
+    local jumps = vim.b[M.buf].jumps or {}
+    shift_parents(jumps, 0, #lines)
+    for n = 1, #lines do
+        table.insert(jumps, n, { leaf = true })
+    end
+    vim.bo[M.buf].modifiable = true
+    vim.api.nvim_buf_set_lines(M.buf, 0, 0, false, lines)
+    vim.bo[M.buf].modifiable = false
+    vim.b[M.buf].jumps = jumps
+    M.help_len = #lines
+end
+
+local function remove_help()
+    local jumps = vim.b[M.buf].jumps or {}
+    for _ = 1, M.help_len do
+        table.remove(jumps, 1)
+    end
+    shift_parents(jumps, 0, -M.help_len)
+    vim.bo[M.buf].modifiable = true
+    vim.api.nvim_buf_set_lines(M.buf, 0, M.help_len, false, {})
+    vim.bo[M.buf].modifiable = false
+    vim.b[M.buf].jumps = jumps
+    M.help_len = 0
+end
+
+-- ?: done in place rather than by re-rendering, so expanded callers stay open.
+local function toggle_help()
+    M.help = not M.help
+    if M.help then
+        insert_help()
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+    else
+        remove_help()
+    end
+end
+
 -- o: show / hide the callers of the tag (or caller) under the cursor, inline.
 local function toggle_callers()
     local lnum = vim.api.nvim_win_get_cursor(0)[1]
@@ -347,12 +441,20 @@ local function render(result, empty_msg)
         return
     end
     local lines, jumps, tree = {}, {}, {}
-    if result and not vim.tbl_isempty(result) then
+    if M.view == 'markers' then
+        tree = vim.deepcopy(markers.outline(M.src_buf))
+    elseif result and not vim.tbl_isempty(result) then
         tree = is_document_symbol(result) and result or nest_by_container_name(result)
     end
     -- Merge after nesting, so a flat SymbolInformation tree is already
     -- built and query entries can find their containing symbol.
-    local extra = M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf) and queries.outline(M.src_buf) or {}
+    local extra = {}
+    if M.view ~= 'markers' and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf) then
+        vim.list_extend(extra, queries.outline(M.src_buf))
+        if M.view == 'all' then
+            vim.list_extend(extra, markers.outline(M.src_buf))
+        end
+    end
     if #extra > 0 then
         for _, node in ipairs(extra) do
             insert_by_range(tree, node)
@@ -371,10 +473,31 @@ local function render(result, empty_msg)
     vim.api.nvim_buf_set_lines(M.buf, 0, -1, false, lines)
     vim.bo[M.buf].modifiable = false
     vim.b[M.buf].jumps = jumps
+    M.help_len = 0
+    if M.help then
+        insert_help()
+    end
+end
+
+local function cycle_view()
+    local next_idx = 1
+    for idx, view in ipairs(VIEWS) do
+        if view == M.view then
+            next_idx = idx % #VIEWS + 1
+        end
+    end
+    M.view = VIEWS[next_idx]
+    M.refresh()
+    vim.api.nvim_echo({ { 'lsptagbar: ' .. M.view } }, false, {})
 end
 
 function M.refresh()
     if not (M.buf and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf)) then
+        return
+    end
+    if M.view == 'markers' then
+        render(nil, 'No markers')
+        M.sync_cursor()
         return
     end
     if markup.handles(M.src_buf) then
@@ -397,6 +520,8 @@ end
 function M.open()
     M.src_win = vim.api.nvim_get_current_win()
     M.src_buf = vim.api.nvim_get_current_buf()
+    M.view = 'all'
+    M.help = false
 
     if config.options.position == 'right' then
         vim.cmd('botright ' .. config.options.width .. ' vsplit')
@@ -422,6 +547,8 @@ function M.open()
     vim.keymap.set('n', '<CR>', goto_jump, opts)
     vim.keymap.set('n', 'p', goto_parent, opts)
     vim.keymap.set('n', 'o', toggle_callers, opts)
+    vim.keymap.set('n', '@', cycle_view, opts)
+    vim.keymap.set('n', '?', toggle_help, opts)
     vim.keymap.set('n', 'q', M.close, opts)
     vim.keymap.set('n', '<Esc>', M.close, opts)
     if config.options.auto_preview then

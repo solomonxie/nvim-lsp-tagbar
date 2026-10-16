@@ -22,6 +22,10 @@ M.defaults = {
     -- filetype -> treesitter queries adding entries the LSP misses;
     -- each { label = '[U]', query = [[ ... @name ... @scope ]] }
     queries = {},
+    -- filetype -> Lua patterns for hand-written entries, '*' for every other filetype;
+    -- the first capture is the text shown, e.g. `# @@ setup db` -> `[@] setup db`
+    markers = { ['*'] = { '@@%s*(.-)%s*$' } },
+    marker_label = '[@]',
     -- LSP SymbolKind -> label shown in the bar
     kinds = {
         [5] = '[C]',   -- Class
@@ -40,7 +44,7 @@ function M.setup(opts)
     -- deep_extend merges list-like tables by index, which would leave
     -- stale defaults past the end of a shorter user list, and would splice
     -- a user's queries together with any shipped later.
-    for _, key in ipairs({ 'heading_filetypes', 'queries', 'callers_test_patterns' }) do
+    for _, key in ipairs({ 'heading_filetypes', 'queries', 'markers', 'callers_test_patterns' }) do
         if opts and opts[key] then
             M.options[key] = opts[key]
         end

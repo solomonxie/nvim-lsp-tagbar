@@ -16,6 +16,8 @@ process, no other plugin dependency.
   queries and merged into the tree (see [Custom entries](#custom-entries)).
 - Mark any line yourself with `@@ some text` in a comment or docstring and
   it shows up as `[@] some text` (see [Markers](#markers)).
+- Git changes show as `[+]` / `[~]` / `[-]` entries under the function they
+  touch (see [Git changes](#git-changes)).
 
 ## Requirements
 
@@ -64,12 +66,16 @@ require('nvim-lsp-tagbar').setup({
     call. Callers in tests are counted but not listed. For a Python method,
     callers that go through a same-named method elsewhere (e.g. a Protocol)
     are included, marked `(via file:line)`.
-  - `@` — cycle what's listed: symbols with [markers](#markers) (the
-    default), markers only (flat), symbols only
+  - `@` — cycle what's listed: symbols with [markers](#markers) and
+    [git changes](#git-changes) (the default), git changes only (flat),
+    markers only (flat), symbols only
   - `?` — show / hide a quick help above the tree: these keys, the
     current `@` view, the marker patterns for this filetype, and where the
     entries come from (which LSP servers, treesitter queries, markers)
-  - `q` / `<Esc>` — close the bar
+  - `q` / `<Esc>` — close the bar; with `auto_close` (the default) it also
+    closes as soon as focus moves to another window
+  - `:bn`, `:bp`, `:e` and the like are refused in the bar (`winfixbuf`), so
+    it never shows another buffer
 - `:LspTagbarDebug` — print internal state (buf/win validity, jump count)
   for troubleshooting, with the bar open and cursor inside a symbol
 
@@ -82,12 +88,16 @@ require('nvim-lsp-tagbar').setup({
   height = 20,           -- for 'bottom'
   width = 40,            -- for 'right'
   auto_preview = false,
+  auto_close = true,     -- close the bar when focus leaves it
   callers_include_tests = false,
   callers_test_patterns = { '/tests?/', '/test_[^/]*$', '_test%.[^/]*$', '/conftest%.py$', '%.spec%.', '%.test%.' },
   heading_filetypes = { 'markdown', 'rmd', 'quarto', 'vimwiki' },
   heading_label = '[H%d]',
   markers = { ['*'] = { '@@%s*(.-)%s*$' } },
   marker_label = '[@]',
+  git_hunks = true,
+  git_base = nil,        -- nil: g:git_diff_base if set, else 'HEAD'
+  git_hunk_labels = { add = '[+]', change = '[~]', delete = '[-]' },
   queries = {},
   kinds = {
     [5] = '[C]',   -- Class
@@ -200,9 +210,31 @@ require('nvim-lsp-tagbar').setup({
 still want `@@` in other filetypes, or set `markers = {}` to turn markers off.
 The scan runs once per edit, memoised like the queries above.
 
-Press `@` in the bar to cycle through three views: symbols with markers
-nested in them, markers only (flat, in file order), and symbols only. The
-bar always opens in the first.
+Press `@` in the bar to cycle through four views: symbols with markers and
+git changes nested in them, git changes only, markers only (flat, in file
+order), and symbols only. The current view's name is shown in the bar's
+winbar, and the bar reopens in the last view used until nvim exits.
+
+## Git changes
+
+Each hunk between the buffer and a git base is an entry, nested under the
+symbol it falls in, named after its first non-blank line:
+
+```
+[F] load
+  [~] rows = read_rows(path, strict=True)
+  [-] 3 lines removed
+[+] def save(rows):
+```
+
+The diff is done in the plugin (`git show` + `vim.diff`), so no git-signs
+plugin is needed, and unsaved edits count. The base is `git_base` (a ref,
+or a function returning one); left unset it reads `g:git_diff_base`, else
+`HEAD`. Set that variable from your config to share one base with other
+git views, and fire `doautocmd User GitDiffBaseChanged` after changing it
+so an open bar refreshes.
+A file git doesn't have at the base is one big `[+]`. Set
+`git_hunks = false` to turn it off.
 
 ## Screenshot
 

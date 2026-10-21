@@ -7,15 +7,23 @@ local markup = require('nvim-lsp-tagbar.markup')
 local queries = require('nvim-lsp-tagbar.queries')
 local markers = require('nvim-lsp-tagbar.markers')
 local callers = require('nvim-lsp-tagbar.callers')
+local hunks = require('nvim-lsp-tagbar.hunks')
 
 local M = {}
 
 M.win, M.buf, M.src_win, M.src_buf = nil, nil, nil, nil
 M._keymap = nil
 M._configured = false
--- `@` in the bar cycles what's listed: symbols with markers nested in them,
--- markers only (flat), then symbols only
-local VIEWS = { 'all', 'markers', 'symbols' }
+-- `@` in the bar cycles what's listed: symbols with markers and git hunks
+-- nested in them, git hunks only (flat), markers only (flat), then symbols only
+local VIEWS = { 'all', 'changes', 'markers', 'symbols' }
+local VIEW_TITLES = {
+    all = 'All: symbols, markers, changes',
+    markers = 'Markers',
+    changes = 'Git changes',
+    symbols = 'Symbols',
+}
+-- kept across opens of the bar for this nvim session
 M.view = 'all'
 -- `?` in the bar shows a quick help block above the tree, NERDTree style
 M.help = false
@@ -300,6 +308,9 @@ local function source_lines(ft)
         out[#out + 1] = ('"   + treesitter queries: %d for %s'):format(#specs, ft)
     end
     out[#out + 1] = '"   + @@ markers (line scan); no ctags'
+    if config.options.git_hunks then
+        out[#out + 1] = '"   + git hunks vs ' .. hunks.base_label()
+    end
     return out
 end
 
@@ -313,7 +324,7 @@ local function help_lines()
         '"   j/k   move' .. (config.options.auto_preview and ', previewing in source' or ''),
         '"   p     go to parent symbol',
         '"   o     show / hide callers',
-        '"   @     cycle view: all > markers > symbols  [now: ' .. M.view .. ']',
+        '"   @     cycle view: all > changes > markers > symbols  [now: ' .. M.view .. ']',
         '"   q     close',
         '" Custom tags',
         '"   write `@@ some text` in a comment or docstring',
@@ -436,23 +447,46 @@ local function sort_by_line(tree)
     end
 end
 
+-- Title of the current `@` view, shown in the bar's winbar.
+local function set_title()
+    if not (M.win and vim.api.nvim_win_is_valid(M.win)) then
+        return
+    end
+    local title = VIEW_TITLES[M.view]
+    if M.view == 'changes' and config.options.git_hunks then
+        title = title .. ' vs ' .. hunks.base_label()
+    end
+    local idx = 1
+    for i, view in ipairs(VIEWS) do
+        if view == M.view then
+            idx = i
+        end
+    end
+    title = (' %s  (%d/%d, @ next)'):format(title, idx, #VIEWS)
+    vim.wo[M.win].winbar = '%#lsptagbarTitle#' .. title:gsub('%%', '%%%%')
+end
+
 local function render(result, empty_msg)
     if not (M.buf and vim.api.nvim_buf_is_valid(M.buf)) then
         return
     end
+    set_title()
     local lines, jumps, tree = {}, {}, {}
     if M.view == 'markers' then
         tree = vim.deepcopy(markers.outline(M.src_buf))
+    elseif M.view == 'changes' then
+        tree = vim.deepcopy(hunks.outline(M.src_buf))
     elseif result and not vim.tbl_isempty(result) then
         tree = is_document_symbol(result) and result or nest_by_container_name(result)
     end
     -- Merge after nesting, so a flat SymbolInformation tree is already
     -- built and query entries can find their containing symbol.
     local extra = {}
-    if M.view ~= 'markers' and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf) then
+    if (M.view == 'all' or M.view == 'symbols') and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf) then
         vim.list_extend(extra, queries.outline(M.src_buf))
         if M.view == 'all' then
             vim.list_extend(extra, markers.outline(M.src_buf))
+            vim.list_extend(extra, vim.deepcopy(hunks.outline(M.src_buf)))
         end
     end
     if #extra > 0 then
@@ -488,15 +522,14 @@ local function cycle_view()
     end
     M.view = VIEWS[next_idx]
     M.refresh()
-    vim.api.nvim_echo({ { 'lsptagbar: ' .. M.view } }, false, {})
 end
 
 function M.refresh()
     if not (M.buf and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf)) then
         return
     end
-    if M.view == 'markers' then
-        render(nil, 'No markers')
+    if M.view == 'markers' or M.view == 'changes' then
+        render(nil, M.view == 'markers' and 'No markers' or 'No git changes')
         M.sync_cursor()
         return
     end
@@ -520,7 +553,6 @@ end
 function M.open()
     M.src_win = vim.api.nvim_get_current_win()
     M.src_buf = vim.api.nvim_get_current_buf()
-    M.view = 'all'
     M.help = false
 
     if config.options.position == 'right' then
@@ -542,6 +574,8 @@ function M.open()
     -- configured size.
     vim.wo[M.win].winfixheight = config.options.position ~= 'right'
     vim.wo[M.win].winfixwidth = config.options.position == 'right'
+    -- :bn, :bp, :e and the like would otherwise load another buffer into the bar
+    vim.wo[M.win].winfixbuf = true
 
     local opts = { buffer = M.buf, silent = true }
     vim.keymap.set('n', '<CR>', goto_jump, opts)
@@ -553,6 +587,21 @@ function M.open()
     vim.keymap.set('n', '<Esc>', M.close, opts)
     if config.options.auto_preview then
         vim.api.nvim_create_autocmd('CursorMoved', { buffer = M.buf, callback = preview })
+    end
+    if config.options.auto_close then
+        -- scheduled: a window can't be closed from inside its own WinLeave;
+        -- the check skips a bar that was already closed, reopened or re-entered by then
+        local win = M.win
+        vim.api.nvim_create_autocmd('WinLeave', {
+            buffer = M.buf,
+            callback = function()
+                vim.schedule(function()
+                    if M.win == win and vim.api.nvim_get_current_win() ~= win then
+                        M.close()
+                    end
+                end)
+            end,
+        })
     end
 
     M.refresh()
@@ -585,6 +634,16 @@ vim.api.nvim_create_autocmd('LspAttach', {
     callback = function(ev)
         -- only for the bar's own buffer: files loaded for callers attach too, and a refresh would drop them
         if ev.buf == M.src_buf and M.win and vim.api.nvim_win_is_valid(M.win) then
+            M.refresh()
+        end
+    end,
+})
+
+-- Whoever owns g:git_diff_base fires this after changing it.
+vim.api.nvim_create_autocmd('User', {
+    pattern = 'GitDiffBaseChanged',
+    callback = function()
+        if M.win and vim.api.nvim_win_is_valid(M.win) then
             M.refresh()
         end
     end,

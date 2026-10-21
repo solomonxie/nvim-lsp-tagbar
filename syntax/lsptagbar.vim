@@ -12,6 +12,9 @@ syntax match lsptagbarConst  "\[K\]"
 syntax match lsptagbarStruct "\[S\]"
 syntax match lsptagbarHead   "\[H\d\]"
 syntax match lsptagbarMarker "\[@\]"
+syntax match lsptagbarAdd    "\[+\]"
+syntax match lsptagbarChange "\[\~\]"
+syntax match lsptagbarDelete "\[-\]"
 syntax match lsptagbarCaller "↑"
 syntax match lsptagbarCallerLoc "\S\+:\d\+\( (\d\+ calls)\)\?\( (via .*)\)\?$"
 syntax match lsptagbarCallerNote "^\s*(.*)$"
@@ -28,6 +31,10 @@ highlight default link lsptagbarConst  Constant
 highlight default link lsptagbarStruct Structure
 highlight default link lsptagbarHead   Title
 highlight default link lsptagbarMarker Todo
+highlight default link lsptagbarTitle  Title
+highlight default link lsptagbarAdd    Added
+highlight default link lsptagbarChange Changed
+highlight default link lsptagbarDelete Removed
 highlight default link lsptagbarCaller Special
 highlight default link lsptagbarCallerLoc Comment
 highlight default link lsptagbarCallerNote Comment

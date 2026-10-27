@@ -14,9 +14,9 @@ local M = {}
 M.win, M.buf, M.src_win, M.src_buf = nil, nil, nil, nil
 M._keymap = nil
 M._configured = false
--- `@` in the bar cycles what's listed: symbols with markers and git hunks
--- nested in them, git hunks only (flat), markers only (flat), then symbols only
-local VIEWS = { 'all', 'changes', 'markers', 'symbols' }
+-- `@` in the bar cycles what's listed: symbols only, git hunks only (flat),
+-- markers only (flat), then symbols with markers and git hunks nested in them
+local VIEWS = { 'symbols', 'changes', 'markers', 'all' }
 local VIEW_TITLES = {
     all = 'All: symbols, markers, changes',
     markers = 'Markers',
@@ -24,7 +24,7 @@ local VIEW_TITLES = {
     symbols = 'Symbols',
 }
 -- kept across opens of the bar for this nvim session
-M.view = 'all'
+M.view = 'symbols'
 -- `?` in the bar shows a quick help block above the tree, NERDTree style
 M.help = false
 M.help_len = 0
@@ -324,7 +324,7 @@ local function help_lines()
         '"   j/k   move' .. (config.options.auto_preview and ', previewing in source' or ''),
         '"   p     go to parent symbol',
         '"   o     show / hide callers',
-        '"   @     cycle view: all > changes > markers > symbols  [now: ' .. M.view .. ']',
+        '"   @     cycle view: symbols > changes > markers > all  [now: ' .. M.view .. ']',
         '"   q     close',
         '" Custom tags',
         '"   write `@@ some text` in a comment or docstring',

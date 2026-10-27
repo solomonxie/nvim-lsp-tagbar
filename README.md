@@ -210,10 +210,11 @@ require('nvim-lsp-tagbar').setup({
 still want `@@` in other filetypes, or set `markers = {}` to turn markers off.
 The scan runs once per edit, memoised like the queries above.
 
-Press `@` in the bar to cycle through four views: symbols with markers and
-git changes nested in them, git changes only, markers only (flat, in file
-order), and symbols only. The current view's name is shown in the bar's
-winbar, and the bar reopens in the last view used until nvim exits.
+Press `@` in the bar to cycle through four views: symbols only (the
+default), git changes only, markers only (flat, in file order), and all:
+symbols with markers and git changes nested in them. The current view's name
+is shown in the bar's winbar, and the bar reopens in the last view used until
+nvim exits.
 
 ## Git changes
 

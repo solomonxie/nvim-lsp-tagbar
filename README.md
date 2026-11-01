@@ -237,6 +237,11 @@ so an open bar refreshes.
 A file git doesn't have at the base is one big `[+]`. Set
 `git_hunks = false` to turn it off.
 
+## Design
+
+The bar's layout, labels, empty states and config surface are drawn in
+[`docs/uiux/bar.md`](docs/uiux/bar.md).
+
 ## Screenshot
 
 ![nvim-lsp-tagbar](./screenshot.png)

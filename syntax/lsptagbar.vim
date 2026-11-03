@@ -18,6 +18,11 @@ syntax match lsptagbarDelete "\[-\]"
 syntax match lsptagbarCaller "↑"
 syntax match lsptagbarCallerLoc "\S\+:\d\+\( (\d\+ calls)\)\?\( (via .*)\)\?$"
 syntax match lsptagbarCallerNote "^\s*(.*)$"
+" File tree: names, git colors and the (ign)/(sym)/(hard)/(exc) tags are
+" painted with extmarks from lua/nvim-lsp-tagbar/files.lua, not here. The
+" rules above only touch a file line whose name itself looks like a label
+" (`[+]`), a caller location (`foo:12`) or starts with `(`.
+syntax match lsptagbarFileArrow "[▸▾]"
 
 " `?` help block: whole lines starting with ", defined last so they win over
 " the label and caller rules above; section titles have no indent.
@@ -38,6 +43,7 @@ highlight default link lsptagbarDelete Removed
 highlight default link lsptagbarCaller Special
 highlight default link lsptagbarCallerLoc Comment
 highlight default link lsptagbarCallerNote Comment
+highlight default link lsptagbarFileArrow Directory
 highlight default link lsptagbarHelp Comment
 highlight default link lsptagbarHelpTitle Statement
 

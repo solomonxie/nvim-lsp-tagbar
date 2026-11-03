@@ -3,16 +3,36 @@ local M = {}
 M.defaults = {
     -- normal-mode mapping to toggle the bar; set to false to disable
     keymap = 'ft',
-    -- where the bar opens: 'bottom' (a split of `height` lines) or 'right' (`width` columns)
+    -- where the bar opens: 'bottom' (a split of `height` lines), 'left' or 'right' (`width` columns)
     position = 'bottom',
     -- bottom split height
     height = 20,
-    -- right split width
+    -- left / right split width
     width = 40,
     -- moving the cursor in the bar shows that symbol in the source window, keeping focus in the bar
     auto_preview = false,
     -- close the bar as soon as focus moves to another window
     auto_close = true,
+    -- the view the bar starts in: 'files', 'changed', 'symbols', 'markers' or 'changes'; `@` cycles them
+    default_view = 'files',
+    -- with auto_close off, the bar follows the buffer you switch to (and the file tree reveals it)
+    follow = true,
+    -- file tree view
+    files = {
+        -- dotfiles; `I` in the bar toggles
+        show_hidden = false,
+        -- Lua patterns on the name of entries never listed
+        ignore = { '%.pyc$', '%.sw[po]$', '^__pycache__$', '^node_modules$' },
+        -- opening a file from the tree closes the bar (`go` previews it and keeps the bar)
+        close_on_open = true,
+        -- re-read the tree this often while it's shown (skipped while you move in it); 0 disables
+        refresh_ms = 10000,
+        -- color names by git state vs git_base, grey out git-ignored entries
+        git = true,
+        arrows = { closed = '▸', open = '▾' },
+        -- function(path) -> path, to map a buffer's path before it's revealed in the tree
+        path = nil,
+    },
     -- `o` on a tag lists its callers under it (LSP call hierarchy); callers in files matching these
     -- Lua patterns are left out unless callers_include_tests is set
     callers_include_tests = false,
@@ -55,6 +75,9 @@ function M.setup(opts)
         if opts and opts[key] then
             M.options[key] = opts[key]
         end
+    end
+    if opts and opts.files and opts.files.ignore then
+        M.options.files.ignore = opts.files.ignore
     end
 end
 

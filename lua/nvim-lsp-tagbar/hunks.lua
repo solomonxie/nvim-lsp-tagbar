@@ -17,7 +17,7 @@ local function pos(line, character)
     return { line = line, character = character }
 end
 
-local function base_ref()
+function M.base_ref()
     local opt = config.options.git_base
     if opt then
         return type(opt) == 'function' and opt() or opt
@@ -27,7 +27,7 @@ local function base_ref()
 end
 
 function M.base_label()
-    local ref = base_ref()
+    local ref = M.base_ref()
     return ref:match('^%x+$') and #ref >= 40 and ref:sub(1, 8) or ref
 end
 
@@ -50,7 +50,7 @@ function M.outline(buf)
     if path == '' then
         return {}
     end
-    local ref = base_ref()
+    local ref = M.base_ref()
     local tick = vim.api.nvim_buf_get_changedtick(buf)
     local now = vim.uv.now()
     if cache.buf == buf and cache.tick == tick and cache.ref == ref and now - cache.time < TTL_MS then

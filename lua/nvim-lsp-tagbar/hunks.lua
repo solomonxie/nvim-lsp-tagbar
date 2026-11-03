@@ -26,8 +26,81 @@ function M.base_ref()
     return (shared and shared ~= '') and shared or 'HEAD'
 end
 
+-- How far HEAD is from the base in the repo at `dir`: `ahead 3, behind 1`,
+-- `up to date`, or nil when it can't tell (not a repo, base is HEAD).
+-- Re-asked at most every few seconds per repo and base.
+local counts = {}
+local COUNTS_TTL_MS = 3000
+
+function M.ahead_behind(dir)
+    local ref = M.base_ref()
+    if not dir or ref == 'HEAD' then
+        return nil
+    end
+    local key = dir .. '@' .. ref
+    local now = vim.uv.now()
+    local hit = counts[key]
+    if hit and now - hit.at < COUNTS_TTL_MS then
+        return hit.text
+    end
+    local res = vim.system({ 'git', '-C', dir, 'rev-list', '--left-right', '--count', ref .. '...HEAD' },
+        { text = true }):wait()
+    local text
+    local behind, ahead = (res.stdout or ''):match('^(%d+)%s+(%d+)')
+    if res.code == 0 and behind then
+        behind, ahead = tonumber(behind), tonumber(ahead)
+        if ahead == 0 and behind == 0 then
+            text = 'up to date'
+        else
+            local parts = {}
+            if ahead > 0 then
+                parts[#parts + 1] = ('ahead %d'):format(ahead)
+            end
+            if behind > 0 then
+                parts[#parts + 1] = ('behind %d'):format(behind)
+            end
+            text = table.concat(parts, ', ')
+        end
+    end
+    counts[key] = { at = now, text = text }
+    return text
+end
+
+-- Branch checked out in the repo at `dir`, or `detached at <short id>`;
+-- nil when it's not a repo. Cached like the counts above.
+local branches = {}
+
+function M.current_branch(dir)
+    if not dir then
+        return nil
+    end
+    local now = vim.uv.now()
+    local hit = branches[dir]
+    if hit and now - hit.at < COUNTS_TTL_MS then
+        return hit.text
+    end
+    local function git(args)
+        local res = vim.system(vim.list_extend({ 'git', '-C', dir }, args), { text = true }):wait()
+        return res.code == 0 and vim.trim(res.stdout or '') or ''
+    end
+    local text = git({ 'branch', '--show-current' })
+    if text == '' then
+        local id = git({ 'rev-parse', '--short', 'HEAD' })
+        text = id ~= '' and ('detached at ' .. id) or nil
+    end
+    branches[dir] = { at = now, text = text }
+    return text
+end
+
+-- What to show for the base: the name it was picked by when whoever set
+-- g:git_diff_base also set g:git_diff_base_name (e.g. nvim-git-flow), else
+-- the ref itself, a commit id cut to 8 characters.
 function M.base_label()
     local ref = M.base_ref()
+    local name = vim.g.git_diff_base_name
+    if not config.options.git_base and name and name ~= '' then
+        return name
+    end
     return ref:match('^%x+$') and #ref >= 40 and ref:sub(1, 8) or ref
 end
 

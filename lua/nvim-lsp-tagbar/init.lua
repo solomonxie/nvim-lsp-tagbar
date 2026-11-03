@@ -15,16 +15,17 @@ local M = {}
 M.win, M.buf, M.src_win, M.src_buf = nil, nil, nil, nil
 M._keymap = nil
 M._configured = false
--- `@` in the bar cycles what's listed: the file tree, the file tree with
+-- `]]` / `[[` in the bar step through what's listed: the file tree, the file tree with
 -- only changed files, the buffer's symbols, its markers (flat), its git
 -- hunks (flat)
 local VIEWS = { 'files', 'changed', 'symbols', 'markers', 'changes' }
+-- short names for the winbar's tab strip
 local VIEW_TITLES = {
     files = 'Files',
-    changed = 'Changed files',
+    changed = 'Changed',
     symbols = 'Symbols',
-    markers = 'Markers',
-    changes = 'Buffer changes',
+    markers = 'Marks',
+    changes = 'Diff',
 }
 -- kept across opens of the bar for this nvim session; setup() starts it at default_view
 M.view = 'files'
@@ -39,9 +40,9 @@ local FILES_NS = vim.api.nvim_create_namespace('lsptagbar_files')
 M._previewing = false
 M._timer = nil
 M._last_move = 0
--- set by M.find(): true keeps the bar open when a file or symbol is opened from it and
--- when focus leaves it, false closes it then; nil follows auto_close / files.close_on_open
-M.stay = nil
+-- `!` in the bar locks it: it then stays open when a file or symbol is opened from it and
+-- when focus leaves it, whatever auto_close / files.close_on_open say. Kept for the session.
+M.locked = false
 local start_timer
 
 local function is_document_symbol(list)
@@ -144,11 +145,16 @@ function M.close()
         M._timer:close()
         M._timer = nil
     end
-    if M.win and vim.api.nvim_win_is_valid(M.win) then
-        vim.api.nvim_win_close(M.win, true)
-    end
+    local win = M.win
     M.win, M.buf = nil, nil
+    if win and vim.api.nvim_win_is_valid(win) and not pcall(vim.api.nvim_win_close, win, true) then
+        -- the last window left can't be closed: turn it back into a plain empty window
+        vim.wo[win].winfixbuf = false
+        vim.wo[win].winbar = ''
+        vim.api.nvim_win_call(win, vim.cmd.enew)
+    end
 end
+
 
 local function goto_parent()
     local jumps = vim.b[M.buf].jumps
@@ -167,7 +173,7 @@ local function goto_jump()
         return
     end
     local src_win = M.src_win
-    if M.stay then
+    if M.locked then
         -- the bar stays; drop a caller preview so the source window shows its own buffer first
         if src_win and vim.api.nvim_win_is_valid(src_win) and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf)
                 and vim.api.nvim_win_get_buf(src_win) ~= M.src_buf then
@@ -196,17 +202,11 @@ end
 
 -- Whether opening something from the bar closes it, and whether leaving it does.
 local function closes_on_open()
-    if M.stay ~= nil then
-        return not M.stay
-    end
-    return config.options.files.close_on_open
+    return not M.locked and config.options.files.close_on_open
 end
 
 local function closes_on_leave()
-    if M.stay ~= nil then
-        return not M.stay
-    end
-    return config.options.auto_close
+    return not M.locked and config.options.auto_close
 end
 
 -- Deepest symbol whose range contains lnum0 (0-indexed): children are
@@ -374,11 +374,11 @@ end
 local function files_help_lines()
     return {
         '" File tree keys (? to close)',
-        '"   <CR>/o  open file, or open / close folder',
+        '"   <CR>/o/2-click  open file, or open / close folder',
         '"   go      preview file, keep the bar',
         '"   O       open folder and all under it',
         '"   x       close parent folder',
-        '"   s/i/t   open in vsplit / split / tab',
+        '"   s/i     open in vsplit / split',
         '"   p       go to parent folder',
         '"   C       make this folder the root',
         '"   u       root up one level',
@@ -386,12 +386,14 @@ local function files_help_lines()
         '"   I       show / hide dotfiles  [now: ' .. (files.show_hidden and 'shown' or 'hidden') .. ']',
         '"   m       menu: add / move / copy / delete',
         '"   Y       copy full path',
-        '"   @       cycle view: ' .. table.concat(VIEWS, ' > ') .. '  [now: ' .. M.view .. ']',
+        '"   gn/gp   next / previous changed file',
+        '"   T       change target branch (:ChangeGitDiffBase)',
+        '"   ]] / [[  next / previous view: ' .. table.concat(VIEWS, ' > ') .. '  [now: ' .. M.view .. ']',
+        '"   !       lock: stay open on open / leave  [now: ' .. (M.locked and 'locked' or 'unlocked') .. ']',
         '"   q       close',
         '" Colors vs ' .. hunks.base_label(),
         '"   green: changed   grey: git-ignored (ign)',
         '"   (sym) symlink  (hard) hard link  (exc) executable',
-        '',
     }
 end
 
@@ -404,11 +406,12 @@ local function help_lines()
     local patterns = markers_cfg[ft] or markers_cfg['*'] or {}
     local lines = {
         '" Keys (? to close)',
-        '"   <CR>  jump to symbol, close bar',
+        '"   <CR>/2-click  jump to symbol, close bar',
         '"   j/k   move' .. (config.options.auto_preview and ', previewing in source' or ''),
         '"   p     go to parent symbol',
         '"   o     show / hide callers',
-        '"   @     cycle view: ' .. table.concat(VIEWS, ' > ') .. '  [now: ' .. M.view .. ']',
+        '"   ]] / [[  next / previous view: ' .. table.concat(VIEWS, ' > ') .. '  [now: ' .. M.view .. ']',
+        '"   !     lock: stay open on jump / leave  [now: ' .. (M.locked and 'locked' or 'unlocked') .. ']',
         '"   q     close',
         '" Custom tags',
         '"   write `@@ some text` in a comment or docstring',
@@ -418,12 +421,78 @@ local function help_lines()
         '" Source',
     }
     vim.list_extend(lines, source_lines(ft))
-    lines[#lines + 1] = ''
     return lines
 end
 
 -- Help lines sit above the tree with placeholder jumps (no pos, leaf), so
 -- every tree line keeps its index into `jumps` shifted by the help length.
+
+-- Header above the tree, under the winbar's tab strip: what the view is of
+-- (the tree's root folder name, or the buffer's file), the branch checked
+-- out, what git compares against, a blank row. Virtual lines above the first
+-- buffer line, so they're never a cursor stop and every line is an entry.
+-- Each row is a list of { text, highlight } chunks; virtual lines don't
+-- wrap, so a value too long for the bar is cut at its end with `…`.
+local HEADER_NS = vim.api.nvim_create_namespace('lsptagbar_header')
+local HEADER_LEN = 4
+
+local function header_lines()
+    local width = M.win and vim.api.nvim_win_is_valid(M.win) and vim.api.nvim_win_get_width(M.win) or 0
+    local function fit(text, room)
+        if room > 1 and vim.fn.strdisplaywidth(text) > room then
+            return vim.fn.strcharpart(text, 0, room - 1) .. '…'
+        end
+        return text
+    end
+    local what, dir
+    if is_tree_view() then
+        what = files.root and vim.fn.fnamemodify(files.root, ':t') or ''
+        dir = files.root
+    else
+        local name = M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf) and vim.api.nvim_buf_get_name(M.src_buf) or ''
+        what = name ~= '' and vim.fn.fnamemodify(name, ':~:.') or '[No Name]'
+        dir = name ~= '' and vim.fs.dirname(name) or nil
+    end
+    local function row(label, value)
+        return { { label, 'lsptagbarHeaderLabel' }, { fit(value, width - #label), 'lsptagbarHeaderValue' } }
+    end
+    local target = hunks.base_label()
+    local counts = hunks.ahead_behind(dir)
+    if counts then
+        target = target .. ' (' .. counts .. ')'
+    end
+    return {
+        { { fit(what, width), 'lsptagbarHeaderFolder' } },
+        row('branch  ', hunks.current_branch(dir) or '-'),
+        row('target  ', target),
+        { { '', 'lsptagbarHeaderLabel' } },
+    }
+end
+
+-- (Re)placed after anything that inserts lines at the top (the `?` help),
+-- so the header stays above everything.
+local function place_header(lines)
+    lines = lines or header_lines()
+    M._header = lines
+    vim.api.nvim_buf_clear_namespace(M.buf, HEADER_NS, 0, -1)
+    vim.api.nvim_buf_set_extmark(M.buf, HEADER_NS, 0, 0, { virt_lines = lines, virt_lines_above = true })
+end
+
+-- Virtual lines above line 1 only show while the window's topfill counts
+-- them; a plain `gg` or scroll back to the top leaves it at 0.
+local function show_header()
+    if not (M.win and vim.api.nvim_win_is_valid(M.win)) then
+        return
+    end
+    vim.api.nvim_win_call(M.win, function()
+        local view = vim.fn.winsaveview()
+        if view.topline == 1 and view.topfill < HEADER_LEN
+            and view.lnum + HEADER_LEN <= vim.api.nvim_win_get_height(0) then
+            vim.fn.winrestview({ topline = 1, topfill = HEADER_LEN })
+        end
+    end)
+end
+
 local function insert_help()
     local lines = help_lines()
     local jumps = vim.b[M.buf].jumps or {}
@@ -436,6 +505,7 @@ local function insert_help()
     vim.bo[M.buf].modifiable = false
     vim.b[M.buf].jumps = jumps
     M.help_len = #lines
+    place_header(M._header)
 end
 
 local function remove_help()
@@ -449,6 +519,7 @@ local function remove_help()
     vim.bo[M.buf].modifiable = false
     vim.b[M.buf].jumps = jumps
     M.help_len = 0
+    place_header(M._header)
 end
 
 -- ?: done in place rather than by re-rendering, so expanded callers stay open.
@@ -457,6 +528,7 @@ local function toggle_help()
     if M.help then
         insert_help()
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        show_header()
     else
         remove_help()
     end
@@ -531,26 +603,22 @@ local function sort_by_line(tree)
     end
 end
 
--- Title of the current `@` view, shown in the bar's winbar.
+-- The views as a tab strip in the bar's winbar.
 local function set_title()
     if not (M.win and vim.api.nvim_win_is_valid(M.win)) then
         return
     end
-    local title = VIEW_TITLES[M.view]
-    if (M.view == 'files' or M.view == 'changed') and files.root then
-        title = title .. ': ' .. vim.fn.fnamemodify(files.root, ':~')
+    -- a wrapped name continues under its first letter: past the `▸ ` arrow in
+    -- the tree, past the `[F] ` label in the symbol views
+    vim.wo[M.win].breakindentopt = 'shift:' .. (is_tree_view() and 2 or 4)
+    -- a tab strip of the views, the current one highlighted; `]]` / `[[` move along it
+    local parts = {}
+    for _, view in ipairs(VIEWS) do
+        local group = view == M.view and 'lsptagbarTabSel' or 'lsptagbarTab'
+        parts[#parts + 1] = ('%%#%s# %s '):format(group, VIEW_TITLES[view])
     end
-    if (M.view == 'changes' and config.options.git_hunks) or (M.view == 'changed' and config.options.files.git) then
-        title = title .. ' vs ' .. hunks.base_label()
-    end
-    local idx = 1
-    for i, view in ipairs(VIEWS) do
-        if view == M.view then
-            idx = i
-        end
-    end
-    title = (' %s  (%d/%d, @ next)'):format(title, idx, #VIEWS)
-    vim.wo[M.win].winbar = '%#lsptagbarTitle#' .. title:gsub('%%', '%%%%')
+    local lock = M.locked and '%#lsptagbarLocked# locked ' or ''
+    vim.wo[M.win].winbar = lock .. table.concat(parts, '%#lsptagbarTab#') .. '%#lsptagbarTab#'
 end
 
 -- The file tree entry under the bar's cursor, if any.
@@ -618,6 +686,7 @@ local function render_tree(focus, idle)
     if M.help then
         insert_help()
     end
+    place_header()
     if not (M.win and vim.api.nvim_win_is_valid(M.win)) then
         return
     end
@@ -630,7 +699,14 @@ local function render_tree(focus, idle)
         end
     end
     lnum = lnum or math.min(old_lnum, vim.api.nvim_buf_line_count(M.buf))
-    vim.api.nvim_win_set_cursor(M.win, { lnum, 0 })
+    vim.api.nvim_win_set_cursor(M.win, { math.max(lnum, M.help_len + 1), 0 })
+    -- keep the header in sight when the cursor fits on the first screen
+    vim.api.nvim_win_call(M.win, function()
+        if vim.fn.line('.') + HEADER_LEN <= vim.api.nvim_win_get_height(0) then
+            vim.fn.winrestview({ topline = 1 })
+        end
+    end)
+    show_header()
 end
 
 -- Window a file from the tree opens in: the one the bar was opened from,
@@ -651,7 +727,7 @@ local function target_window()
         { split = ({ left = 'right', right = 'left' })[config.options.position] or 'above', win = -1 })
 end
 
--- how: nil (in the source window), 'vsplit', 'split', 'tab', or 'preview'
+-- how: nil (in the source window), 'vsplit', 'split', or 'preview'
 -- (in the source window, focus and bar kept).
 local function open_file(path, how)
     local win = target_window()
@@ -673,7 +749,7 @@ local function open_file(path, how)
         end
         vim.api.nvim_set_current_win(win)
         vim.cmd("normal! m'")
-        local cmd = ({ vsplit = 'vsplit', split = 'split', tab = 'tabedit' })[how] or 'edit'
+        local cmd = ({ vsplit = 'vsplit', split = 'split' })[how] or 'edit'
         ok, err = pcall(vim.cmd, cmd .. ' ' .. fname)
     end
     if not ok then
@@ -690,7 +766,8 @@ local function tree_activate(how)
     if not e.dir then
         open_file(e.path, how)
     elseif not how then
-        files.open_dirs[e.path] = not files.open_dirs[e.path] or nil
+        local set = M.view == 'changed' and files.closed_changed or files.open_dirs
+        set[e.path] = not set[e.path] or nil
         render_tree(e.path)
     end
 end
@@ -705,7 +782,16 @@ local function tree_open_recursive()
         open_file(e.path)
         return
     end
-    files.open_recursive(e.path)
+    if M.view == 'changed' then
+        -- everything starts open here: just undo closes at and under this folder
+        for path in pairs(files.closed_changed) do
+            if path == e.path or path:sub(1, #e.path + 1) == e.path .. '/' then
+                files.closed_changed[path] = nil
+            end
+        end
+    else
+        files.open_recursive(e.path)
+    end
     render_tree(e.path)
 end
 
@@ -717,7 +803,11 @@ local function tree_close_parent()
     if not (parent and parent.path) then
         return
     end
-    files.open_dirs[parent.path] = nil
+    if M.view == 'changed' then
+        files.closed_changed[parent.path] = true
+    else
+        files.open_dirs[parent.path] = nil
+    end
     render_tree(parent.path)
 end
 
@@ -752,6 +842,71 @@ end
 local function tree_toggle_hidden()
     files.show_hidden = not files.show_hidden
     render_tree()
+end
+
+-- Whether path a comes before b in the tree: folders before files at each
+-- level, then by name ignoring case (as files.list_dir sorts), a folder
+-- before what's inside it. is_dir_a / is_dir_b say whether the paths
+-- themselves are folders.
+local function tree_before(a, is_dir_a, b, is_dir_b)
+    local pa = vim.split(a, '/', { plain = true })
+    local pb = vim.split(b, '/', { plain = true })
+    for k = 1, math.min(#pa, #pb) do
+        if pa[k] ~= pb[k] then
+            local da = k < #pa or is_dir_a
+            local db = k < #pb or is_dir_b
+            if da ~= db then
+                return da
+            end
+            local la, lb = pa[k]:lower(), pb[k]:lower()
+            if la ~= lb then
+                return la < lb
+            end
+            return pa[k] < pb[k]
+        end
+    end
+    return #pa < #pb
+end
+
+-- gn / gp: next / previous changed file in the tree, its folders opened; wraps around.
+local function tree_next_changed(dir)
+    local list = files.changed_files(files.root)
+    if #list == 0 then
+        vim.api.nvim_echo({ { 'No changed files' } }, false, {})
+        return
+    end
+    local e = tree_entry()
+    local target
+    if not e then
+        target = dir > 0 and list[1] or list[#list]
+    elseif dir > 0 then
+        for _, p in ipairs(list) do
+            if tree_before(e.path, e.dir, p, false) then
+                target = p
+                break
+            end
+        end
+        target = target or list[1]
+    else
+        for k = #list, 1, -1 do
+            if tree_before(list[k], false, e.path, e.dir) then
+                target = list[k]
+                break
+            end
+        end
+        target = target or list[#list]
+    end
+    if M.view == 'changed' then
+        local d = vim.fs.dirname(target)
+        while #d > #files.root do
+            files.closed_changed[d] = nil
+            d = vim.fs.dirname(d)
+        end
+    else
+        files.reveal(target)
+    end
+    render_tree(target)
+    vim.cmd('normal! zz')
 end
 
 -- Y: full path into the unnamed register and the clipboard.
@@ -898,16 +1053,19 @@ local function render(result, empty_msg)
     if M.help then
         insert_help()
     end
+    place_header()
+    show_header()
 end
 
-local function cycle_view()
-    local next_idx = 1
+-- step = 1 for the next view, -1 for the previous; wraps around
+local function cycle_view(step)
+    local cur = 1
     for idx, view in ipairs(VIEWS) do
         if view == M.view then
-            next_idx = idx % #VIEWS + 1
+            cur = idx
         end
     end
-    M.view = VIEWS[next_idx]
+    M.view = VIEWS[(cur - 1 + (step or 1)) % #VIEWS + 1]
     M.refresh()
 end
 
@@ -992,7 +1150,10 @@ function M.open()
     vim.bo[M.buf].bufhidden = 'wipe'
     vim.bo[M.buf].filetype = 'lsptagbar'
     vim.wo[M.win].number = false
-    vim.wo[M.win].wrap = false
+    -- long names wrap at the window edge, continued under where the name starts
+    vim.wo[M.win].wrap = true
+    vim.wo[M.win].linebreak = false
+    vim.wo[M.win].breakindent = true
     -- Without this, any later window-layout change ('<C-w>=', a new split,
     -- closing a window) re-equalizes every window and the bar loses its
     -- configured size.
@@ -1015,13 +1176,14 @@ function M.open()
     end
     vim.keymap.set('n', '<CR>', tree(function() tree_activate() end, goto_jump), opts)
     vim.keymap.set('n', 'o', tree(function() tree_activate() end, toggle_callers), opts)
+    -- double click: same as <CR> on the line clicked (the first click already moved the cursor there)
+    vim.keymap.set('n', '<2-LeftMouse>', tree(function() tree_activate() end, goto_jump), opts)
     vim.keymap.set('n', 'p', goto_parent, opts)
     vim.keymap.set('n', 'R', tree(tree_reload, M.refresh), opts)
     local tree_keys = {
         go = function() tree_activate('preview') end,
         s = function() tree_activate('vsplit') end,
         i = function() tree_activate('split') end,
-        t = function() tree_activate('tab') end,
         O = tree_open_recursive,
         x = tree_close_parent,
         C = tree_set_root,
@@ -1029,12 +1191,18 @@ function M.open()
         I = tree_toggle_hidden,
         m = tree_menu,
         Y = tree_yank_path,
+        gn = function() tree_next_changed(1) end,
+        gp = function() tree_next_changed(-1) end,
     }
     for lhs, fn in pairs(tree_keys) do
         vim.keymap.set('n', lhs, tree(fn), opts)
     end
-    vim.keymap.set('n', '@', cycle_view, opts)
+    vim.keymap.set('n', ']]', function() cycle_view(1) end, opts)
+    vim.keymap.set('n', '[[', function() cycle_view(-1) end, opts)
     vim.keymap.set('n', '?', toggle_help, opts)
+    vim.keymap.set('n', '!', M.toggle_lock, opts)
+    -- T: start the command that changes the git base, left on the command line to finish typing
+    vim.keymap.set('n', 'T', ':ChangeGitDiffBase ', { buffer = M.buf, nowait = true })
     vim.keymap.set('n', 'q', M.close, opts)
     vim.keymap.set('n', '<Esc>', M.close, opts)
     if config.options.auto_preview then
@@ -1046,6 +1214,11 @@ function M.open()
         callback = function()
             M._last_move = vim.uv.now()
         end,
+    })
+    -- back at the top (gg, k, scrolling up), the header scrolls back into view
+    vim.api.nvim_create_autocmd({ 'CursorMoved', 'WinScrolled' }, {
+        buffer = M.buf,
+        callback = show_header,
     })
     start_timer()
     -- scheduled: a window can't be closed from inside its own WinLeave;
@@ -1069,16 +1242,18 @@ function M.open()
     M.refresh()
 end
 
--- Open the bar, or focus it if it's open, with the current file revealed:
--- NERDTree's find, for a mapping in your own config. opts.stay = true keeps
--- the bar open after opening a file and when focus leaves it (NERDTree with
--- NERDTreeQuitOnOpen = 0); false closes it then. Called from inside the bar,
--- it only switches that mode. The last call decides, for this nvim session.
-function M.find(opts)
-    opts = opts or {}
-    if opts.stay ~= nil then
-        M.stay = opts.stay
+-- The bar is open in another tab: close it there, so it can open in this one.
+local function close_if_other_tab()
+    if M.win and vim.api.nvim_win_is_valid(M.win)
+            and vim.api.nvim_win_get_tabpage(M.win) ~= vim.api.nvim_get_current_tabpage() then
+        M.close()
     end
+end
+
+-- Open the bar, or focus it if it's open, with the current file revealed:
+-- NERDTree's find, for a mapping in your own config.
+function M.find()
+    close_if_other_tab()
     if not (M.win and vim.api.nvim_win_is_valid(M.win)) then
         M.open()
     elseif vim.api.nvim_get_current_win() ~= M.win then
@@ -1097,15 +1272,22 @@ function M.find(opts)
             M.refresh()
         end
     end
-    if M.win and vim.api.nvim_win_is_valid(M.win) then
-        vim.api.nvim_win_call(M.win, function()
-            vim.cmd('normal! zz')
-        end)
+end
+
+-- !: lock / unlock the bar open.
+function M.toggle_lock()
+    M.locked = not M.locked
+    set_title()
+    if M.help and M.buf and vim.api.nvim_buf_is_valid(M.buf) then
+        -- redraw the help so its [now: ...] is right
+        remove_help()
+        insert_help()
     end
-    vim.api.nvim_echo({ { M.stay and 'Bar stays open' or 'Bar closes after opening a file' } }, false, {})
+    vim.api.nvim_echo({ { M.locked and 'Bar locked: stays open' or 'Bar unlocked' } }, false, {})
 end
 
 function M.toggle()
+    close_if_other_tab()
     if M.win and vim.api.nvim_win_is_valid(M.win) then
         M.close()
     else
@@ -1148,7 +1330,7 @@ vim.api.nvim_create_autocmd('User', {
     end,
 })
 
--- follow: a bar left open (auto_close off, or stay) moves along to the buffer you
+-- follow: a bar left open (auto_close off, or locked) moves along to the buffer you
 -- switch to; the file tree reveals it if it's under the root.
 vim.api.nvim_create_autocmd('BufEnter', {
     callback = function(ev)
@@ -1172,6 +1354,19 @@ vim.api.nvim_create_autocmd('BufEnter', {
         else
             M.refresh()
         end
+    end,
+})
+
+-- A :bdelete or a closed diff tab can take every window beside the bar; a
+-- bar left alone in its tab closes too (checked once the close is done).
+vim.api.nvim_create_autocmd('WinClosed', {
+    callback = function()
+        vim.schedule(function()
+            if M.win and (not vim.api.nvim_win_is_valid(M.win)
+                    or #vim.api.nvim_tabpage_list_wins(vim.api.nvim_win_get_tabpage(M.win)) == 1) then
+                M.close()
+            end
+        end)
     end,
 })
 

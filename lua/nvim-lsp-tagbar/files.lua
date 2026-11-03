@@ -16,6 +16,8 @@ local M = {}
 -- kept across opens of the bar for this nvim session, like NERDTree's tree
 M.root = nil
 M.open_dirs = {}
+-- folders closed in the changed-files view, where every folder starts open
+M.closed_changed = {}
 -- nil until first used, then config files.show_hidden; `I` flips it
 M.show_hidden = nil
 
@@ -101,9 +103,19 @@ end
 -- Git state under a root: dirty files and the folders holding them, and
 -- ignored paths (an ignored folder is listed once and covers its contents).
 -- Re-queried at most every few seconds.
-local git = { key = nil, at = 0, dirty = {}, ignored = {} }
+local git = { key = nil, at = 0, dirty = {}, ignored = {}, stat = {} }
 local GIT_TTL_MS = 3000
-local NO_GIT = { dirty = {}, ignored = {} }
+local NO_GIT = { dirty = {}, ignored = {}, stat = {} }
+
+-- Lines in an untracked file, all of them added; nil for a big or unreadable one.
+local function line_count(path)
+    local st = uv.fs_stat(path)
+    if not st or st.type ~= 'file' or st.size > 1024 * 1024 then
+        return nil
+    end
+    local ok, lines = pcall(vim.fn.readfile, path)
+    return ok and #lines or nil
+end
 
 function M.invalidate_git()
     git.key = nil
@@ -119,31 +131,44 @@ function M.git_status(root)
     if git.key == key and now - git.at < GIT_TTL_MS then
         return git
     end
-    local dirty, ignored = {}, {}
+    -- stat: path -> { added, removed } lines, or { binary = true }
+    local dirty, ignored, stat = {}, {}, {}
     local function run(args)
         return vim.system(vim.list_extend({ 'git', '-C', root }, args), { text = true })
     end
     if run({ 'rev-parse', '--git-dir' }):wait().code == 0 then
         -- paths relative to the root (not the git toplevel), so a symlinked root matches
-        local diff = run({ 'diff', '--name-only', '--relative', base })
+        local diff = run({ 'diff', '--numstat', '--no-renames', '--relative', base })
         local untracked = run({ 'ls-files', '--others', '--exclude-standard' })
         local ign = run({ 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory' })
-        for _, job in ipairs({ diff, untracked }) do
-            for rel in (job:wait().stdout or ''):gmatch('[^\n]+') do
-                local path = join(root, rel)
-                dirty[path] = 'file'
-                local dir = vim.fs.dirname(path)
-                while #dir > #root and not dirty[dir] do
-                    dirty[dir] = 'dir'
-                    dir = vim.fs.dirname(dir)
-                end
+        local function mark(path)
+            dirty[path] = 'file'
+            local dir = vim.fs.dirname(path)
+            while #dir > #root and not dirty[dir] do
+                dirty[dir] = 'dir'
+                dir = vim.fs.dirname(dir)
             end
+        end
+        -- `added<TAB>removed<TAB>path`, `-` for both on a binary file
+        for line in (diff:wait().stdout or ''):gmatch('[^\n]+') do
+            local added, removed, rel = line:match('^(%S+)\t(%S+)\t(.+)$')
+            if rel then
+                local path = join(root, rel)
+                mark(path)
+                stat[path] = added == '-' and { binary = true } or { tonumber(added), tonumber(removed) }
+            end
+        end
+        for rel in (untracked:wait().stdout or ''):gmatch('[^\n]+') do
+            local path = join(root, rel)
+            mark(path)
+            local n = line_count(path)
+            stat[path] = n and { n, 0 } or nil
         end
         for rel in (ign:wait().stdout or ''):gmatch('[^\n]+') do
             ignored[join(root, (rel:gsub('/$', '')))] = true
         end
     end
-    git.key, git.at, git.dirty, git.ignored = key, now, dirty, ignored
+    git.key, git.at, git.dirty, git.ignored, git.stat = key, now, dirty, ignored, stat
     return git
 end
 
@@ -230,14 +255,34 @@ function M.build(root, only_dirty)
             if only_dirty and not status.dirty[item.path] then
                 goto continue
             end
-            local is_open = item.dir and (only_dirty or M.open_dirs[item.path]) or false
+            local is_open = item.dir and (only_dirty and not M.closed_changed[item.path] or not only_dirty and M.open_dirs[item.path]) or false
             local indent = string.rep('  ', depth)
             local prefix = indent .. (item.dir and ((is_open and arrows.open or arrows.closed) .. ' ') or '  ')
             local shown = item.name .. (item.dir and '/' or '')
             lines[#lines + 1] = prefix .. shown
             local kind = M.link_kind(item.path)
             local tags = {}
+            -- `+n -n` lines changed vs the git base, a side left out when it's 0
+            local st = status.stat[item.path]
+            if st then
+                if st.binary then
+                    tags[#tags + 1] = { 'bin', 'lsptagbarGitStat' }
+                else
+                    if st[1] > 0 then
+                        tags[#tags + 1] = { '+' .. st[1], 'lsptagbarGitAdded' }
+                    end
+                    if st[2] > 0 then
+                        if #tags > 0 then
+                            tags[#tags + 1] = { ' ', 'Normal' }
+                        end
+                        tags[#tags + 1] = { '-' .. st[2], 'lsptagbarGitRemoved' }
+                    end
+                end
+            end
             if kind then
+                if #tags > 0 then
+                    tags[#tags + 1] = { ' ', 'Normal' }
+                end
                 tags[#tags + 1] = { '(' .. kind .. ')', KIND_GROUP[kind] }
             end
             -- only on the ignored entry itself, not repeated for what's inside an ignored folder
@@ -296,6 +341,25 @@ function M.reveal(path)
         end
     end
     return true
+end
+
+-- Changed files under the root in tree order (folders first, then names,
+-- as listed), only the ones the tree would show.
+function M.changed_files(root)
+    local status = M.git_status(root)
+    local out = {}
+    local function walk(dir)
+        for _, item in ipairs(M.list_dir(dir)) do
+            local d = status.dirty[item.path]
+            if d == 'dir' then
+                walk(item.path)
+            elseif d == 'file' then
+                out[#out + 1] = item.path
+            end
+        end
+    end
+    walk(root)
+    return out
 end
 
 -- Open a folder and every folder under it, skipping git-ignored ones and
@@ -404,6 +468,11 @@ function M.set_colors()
     hl(0, 'lsptagbarFileLink', { default = true, fg = '#5fd7ff', ctermfg = 81 })
     hl(0, 'lsptagbarFileExec', { default = true, fg = '#af87ff', ctermfg = 141 })
     hl(0, 'lsptagbarFileArrow', { default = true, link = 'Directory' })
+    hl(0, 'lsptagbarGitAdded', { default = true, link = 'Added' })
+    hl(0, 'lsptagbarGitRemoved', { default = true, link = 'Removed' })
+    hl(0, 'lsptagbarGitStat', { default = true, link = 'Comment' })
+    -- the bar header's folder / file row: a soft blue, apart from the grey labels
+    hl(0, 'lsptagbarHeaderFolder', { default = true, bold = true, fg = '#87afd7', ctermfg = 110, cterm = { bold = true } })
 end
 
 return M

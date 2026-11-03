@@ -13,7 +13,7 @@ M.defaults = {
     auto_preview = false,
     -- close the bar as soon as focus moves to another window
     auto_close = true,
-    -- the view the bar starts in: 'files', 'changed', 'symbols', 'markers' or 'changes'; `@` cycles them
+    -- the view the bar starts in: 'files', 'changed', 'symbols', 'markers' or 'changes'; `]]` / `[[` step through them
     default_view = 'files',
     -- with auto_close off, the bar follows the buffer you switch to (and the file tree reveals it)
     follow = true,
@@ -48,7 +48,7 @@ M.defaults = {
     -- the first capture is the text shown, e.g. `# @@ setup db` -> `[@] setup db`
     markers = { ['*'] = { '@@%s*(.-)%s*$' } },
     marker_label = '[@]',
-    -- list git hunks (buffer vs git_base) as entries; `@` also cycles to a changes-only view
+    -- list git hunks (buffer vs git_base) as entries, and in the changes-only view
     git_hunks = true,
     -- ref or function returning one; nil follows g:git_diff_base, else HEAD
     git_base = nil,

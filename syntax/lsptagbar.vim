@@ -36,7 +36,10 @@ highlight default link lsptagbarConst  Constant
 highlight default link lsptagbarStruct Structure
 highlight default link lsptagbarHead   Title
 highlight default link lsptagbarMarker Todo
-highlight default link lsptagbarTitle  Title
+" winbar tab strip: the current view stands out, the others are dim
+highlight default link lsptagbarTab    Comment
+highlight default link lsptagbarTabSel TabLineSel
+highlight default link lsptagbarLocked WarningMsg
 highlight default link lsptagbarAdd    Added
 highlight default link lsptagbarChange Changed
 highlight default link lsptagbarDelete Removed
@@ -45,6 +48,10 @@ highlight default link lsptagbarCallerLoc Comment
 highlight default link lsptagbarCallerNote Comment
 highlight default link lsptagbarFileArrow Directory
 highlight default link lsptagbarHelp Comment
+" header above the tree (virtual lines): folder or file, then dim `branch` /
+" `target` labels with their values; lsptagbarHeaderFolder is set in files.lua
+highlight default link lsptagbarHeaderLabel Comment
+highlight default link lsptagbarHeaderValue Normal
 highlight default link lsptagbarHelpTitle Statement
 
 let b:current_syntax = 'lsptagbar'

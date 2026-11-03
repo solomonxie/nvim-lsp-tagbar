@@ -24,7 +24,8 @@ plugin dependency.
 - Git changes show as `[+]` / `[~]` / `[-]` entries, one per hunk (see
   [Git changes](#git-changes)), and the `changed` view is the file tree cut
   down to the files that differ from the git base.
-- `@` cycles the views: files > changed > symbols > markers > changes.
+- `]]` / `[[` step through the views: files > changed > symbols > markers >
+  changes.
 
 ## Requirements
 
@@ -64,26 +65,28 @@ require('nvim-lsp-tagbar').setup({
 
 - `ft` (or `:LspTagbarToggle`) — toggle the bar
 - Inside the bar, in every view:
-  - `@` — cycle the view: files (the [file tree](#file-tree), the default,
-    see `default_view`) > changed (the tree with only changed files) >
+  - `]]` / `[[` — next / previous view, wrapping around: files (the
+    [file tree](#file-tree), the default, see `default_view`) > changed (the tree with only changed files) >
     symbols > [markers](#markers) (flat) > [changes](#git-changes) (this
     buffer's git hunks, flat). The view is kept for the session; the winbar
     shows which one you're in
   - `?` — show / hide a quick help above the tree: these keys, the
-    current `@` view, the marker patterns for this filetype, and where the
+    current view, the marker patterns for this filetype, and where the
     entries come from (which LSP servers, treesitter queries, markers)
+  - `!` — lock the bar open, `!` again to unlock; `[locked]` leads the title
+    while it's on (see [File tree](#file-tree))
   - `q` / `<Esc>` — close the bar; with `auto_close` (the default) it also
-    closes as soon as focus moves to another window
+    closes as soon as focus moves to another window, unless locked
   - `:bn`, `:bp`, `:e` and the like are refused in the bar (`winfixbuf`), so
     it never shows another buffer
 - In the file tree (`files` and `changed` views):
-  - `<CR>` / `o` — open the file, or open / close the folder
+  - `<CR>` / `o` / double click — open the file, or open / close the folder
   - `go` — preview the file in the source window, keeping the bar
   - `O` — open the folder and every folder under it (git-ignored and
     symlinked folders are skipped, and it stops at a cap for huge trees);
     on a file, same as `o`
   - `x` — close the folder the cursor is in
-  - `s` / `i` / `t` — open the file in a vertical split / split / new tab
+  - `s` / `i` — open the file in a vertical split / split
   - `p` — jump to the parent folder's line
   - `C` — make the folder (or the file's folder) the root; `u` — root up
     one level
@@ -91,8 +94,13 @@ require('nvim-lsp-tagbar').setup({
   - `m` — file menu: `a`dd (a trailing `/` makes a folder), `m`ove /
     rename, `c`opy, `d`elete (asks first). Open buffers follow a move
   - `Y` — copy the entry's full path to the clipboard and `"` register
+  - `T` — types `:ChangeGitDiffBase ` on the command line for you to finish
+    (a ref, or nothing for your setup's default); the bar repaints on its
+    `User GitDiffBaseChanged`
+  - `gn` / `gp` — jump to the next / previous changed file (vs the git
+    base), opening the folders on the way; wraps around
 - In the symbol views:
-  - `<CR>` — jump to the symbol and close the bar
+  - `<CR>` / double click — jump to the symbol and close the bar
   - `j` / `k` — with `auto_preview`, the source window follows to each symbol
   - `p` — jump to the enclosing symbol's line, within the bar
   - `o` — show / hide who calls this symbol, inline under it (LSP call
@@ -101,18 +109,9 @@ require('nvim-lsp-tagbar').setup({
     call. Callers in tests are counted but not listed. For a Python method,
     callers that go through a same-named method elsewhere (e.g. a Protocol)
     are included, marked `(via file:line)`.
-- `require('nvim-lsp-tagbar').find({ stay = true | false })` — for your own
-  mappings, like NERDTree's find: opens the bar (or jumps into it) with the
-  current file revealed. `stay = true` keeps the bar open after opening a
-  file or symbol and when you leave it; `false` closes it then. The last call
-  decides, for the session; called from inside the bar it just switches.
-  E.g. NERDTree-style `ff` (closes) / `FF` (stays):
-
-  ```lua
-  local tagbar = require('nvim-lsp-tagbar')
-  vim.keymap.set('n', 'ff', function() tagbar.find({ stay = false }) end)
-  vim.keymap.set('n', 'FF', function() tagbar.find({ stay = true }) end)
-  ```
+- `require('nvim-lsp-tagbar').find()` — for your own mapping, like
+  NERDTree's find: opens the bar (or jumps into it) with the current file
+  revealed, e.g. `vim.keymap.set('n', 'ff', require('nvim-lsp-tagbar').find)`
 - `:LspTagbarDebug` — print internal state (buf/win validity, jump count)
   for troubleshooting, with the bar open and cursor inside a symbol
 
@@ -255,7 +254,7 @@ require('nvim-lsp-tagbar').setup({
 still want `@@` in other filetypes, or set `markers = {}` to turn markers off.
 The scan runs once per edit, memoised like the queries above.
 
-Press `@` in the bar to cycle through the views: files, changed, symbols
+Press `]]` / `[[` in the bar to step through the views: files, changed, symbols
 (with your [treesitter queries](#custom-entries) merged in), markers and
 changes. The current view's name is shown in the bar's winbar, and the bar
 reopens in the last view used until nvim exits.
@@ -306,8 +305,12 @@ re-asked at most every 3 seconds), skipped while you're moving in it (the
 last 2 seconds) or outside normal mode. `doautocmd User GitDiffBaseChanged`
 repaints it right away. `R` re-reads it by hand.
 
-With `auto_close = false` the bar stays open, and with `follow` (the
-default) it follows the buffer you switch to: the tree reveals that file
+`!` in the bar locks it open: opening a file or symbol from it, or moving
+to another window, no longer closes it, and `[locked]` shows at the start of
+its title. `!` again unlocks it. The lock lasts for the nvim session.
+
+With the bar locked, or `auto_close = false`, and `follow` (the
+default), it follows the buffer you switch to: the tree reveals that file
 (only when it's under the root, so the root never jumps), and the symbol
 views show that buffer's symbols. Add `close_on_open = false` for a
 NERDTree-like sidebar:

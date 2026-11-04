@@ -25,8 +25,9 @@ M.defaults = {
         ignore = { '%.pyc$', '%.sw[po]$', '^__pycache__$', '^node_modules$' },
         -- opening a file from the tree closes the bar (`go` previews it and keeps the bar)
         close_on_open = true,
-        -- re-read the tree this often while it's shown (skipped while you move in it); 0 disables
-        refresh_ms = 10000,
+        -- re-read the tree this often while it's shown (skipped while you move in it or nvim is in the
+        -- background); it's also re-read on focus, save and after a shell command. 0 disables the timer
+        refresh_ms = 30000,
         -- color names by git state vs git_base, grey out git-ignored entries
         git = true,
         arrows = { closed = '▸', open = '▾' },

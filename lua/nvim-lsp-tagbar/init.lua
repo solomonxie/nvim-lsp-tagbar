@@ -40,6 +40,8 @@ local FILES_NS = vim.api.nvim_create_namespace('lsptagbar_files')
 M._previewing = false
 M._timer = nil
 M._last_move = 0
+-- false while nvim's window is in the background (FocusLost); the tree's timer rests then
+M._focused = true
 -- `!` in the bar locks it: it then stays open when a file or symbol is opened from it and
 -- when focus leaves it, whatever auto_close / files.close_on_open say. Kept for the session.
 M.locked = false
@@ -1134,8 +1136,8 @@ function M.refresh()
 end
 
 -- Re-read the file tree every files.refresh_ms while it's shown: only in
--- normal mode and not while the cursor is moving in it, since a big tree
--- takes a moment to read.
+-- normal mode, while nvim has focus, and not while the cursor is moving in
+-- it, since a big tree takes a moment to read.
 start_timer = function()
     local ms = config.options.files.refresh_ms
     if not ms or ms <= 0 or M._timer then
@@ -1151,7 +1153,8 @@ start_timer = function()
             end
             return
         end
-        if not is_tree_view() or vim.api.nvim_get_mode().mode ~= 'n' or vim.uv.now() - M._last_move < 2000 then
+        if not M._focused or not is_tree_view() or vim.api.nvim_get_mode().mode ~= 'n'
+                or vim.uv.now() - M._last_move < 2000 then
             return
         end
         render_tree(nil, true)
@@ -1405,6 +1408,27 @@ vim.api.nvim_create_autocmd('WinClosed', {
 
 files.set_colors()
 vim.api.nvim_create_autocmd('ColorScheme', { callback = files.set_colors })
+
+-- Files change on disk mostly at these moments: coming back from another app
+-- (a git checkout in a terminal), after :! or the built-in terminal, and on a
+-- save. Re-read the tree right then instead of waiting for the timer; an
+-- unchanged tree isn't redrawn.
+vim.api.nvim_create_autocmd('FocusLost', {
+    callback = function()
+        M._focused = false
+    end,
+})
+vim.api.nvim_create_autocmd({ 'FocusGained', 'ShellCmdPost', 'TermLeave', 'BufWritePost' }, {
+    callback = function(ev)
+        if ev.event == 'FocusGained' then
+            M._focused = true
+        end
+        if M.win and vim.api.nvim_win_is_valid(M.win) and is_tree_view() then
+            files.invalidate_git()
+            render_tree(nil, true)
+        end
+    end,
+})
 
 vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     callback = function(ev)

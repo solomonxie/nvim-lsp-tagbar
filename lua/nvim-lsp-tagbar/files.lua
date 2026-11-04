@@ -117,6 +117,9 @@ local function line_count(path)
     return ok and #lines or nil
 end
 
+-- root -> whether it's inside a git checkout; asked once per root
+local is_repo = {}
+
 function M.invalidate_git()
     git.key = nil
 end
@@ -136,7 +139,10 @@ function M.git_status(root)
     local function run(args)
         return vim.system(vim.list_extend({ 'git', '-C', root }, args), { text = true })
     end
-    if run({ 'rev-parse', '--git-dir' }):wait().code == 0 then
+    if is_repo[root] == nil then
+        is_repo[root] = run({ 'rev-parse', '--git-dir' }):wait().code == 0
+    end
+    if is_repo[root] then
         -- paths relative to the root (not the git toplevel), so a symlinked root matches
         local diff = run({ 'diff', '--numstat', '--no-renames', '--relative', base })
         local untracked = run({ 'ls-files', '--others', '--exclude-standard' })

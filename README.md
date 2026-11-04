@@ -137,7 +137,7 @@ require('nvim-lsp-tagbar').setup({
     show_hidden = false, -- dotfiles; `I` toggles
     ignore = { '%.pyc$', '%.sw[po]$', '^__pycache__$', '^node_modules$' },
     close_on_open = true, -- opening a file from the tree closes the bar
-    refresh_ms = 10000,  -- re-read the tree while shown; 0 disables
+    refresh_ms = 30000,  -- re-read the tree while shown; 0 disables the timer
     git = true,          -- color by git state, grey out ignored entries
     arrows = { closed = '▸', open = '▾' },
     path = nil,          -- function(path) -> path, before a buffer is revealed
@@ -308,8 +308,12 @@ clean entries. The groups are defined as defaults, so a colorscheme or a
 
 While the tree is shown it's re-read every `refresh_ms` (and git is
 re-asked at most every 3 seconds), skipped while you're moving in it (the
-last 2 seconds) or outside normal mode. `doautocmd User GitDiffBaseChanged`
-repaints it right away. `R` re-reads it by hand.
+last 2 seconds), outside normal mode, or while nvim is in the background.
+It's also re-read right away when nvim gets focus back (e.g. after a
+`git checkout` in another terminal), after `:!` or the built-in terminal,
+and when you save a file. An unchanged tree is never redrawn.
+`doautocmd User GitDiffBaseChanged` repaints it right away. `R` re-reads it
+by hand.
 
 `!` in the bar locks it open: opening a file or symbol from it, or moving
 to another window, no longer closes it, and `[locked]` shows at the start of

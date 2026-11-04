@@ -384,7 +384,7 @@ local function files_help_lines()
         '"   u       root up one level',
         '"   R       refresh',
         '"   I       show / hide dotfiles  [now: ' .. (files.show_hidden and 'shown' or 'hidden') .. ']',
-        '"   m       menu: add / move / copy / delete',
+        '"   m       menu: add / move / copy / delete / reveal in Finder / run',
         '"   Y       copy full path',
         '"   gn/gp   next / previous changed file',
         '"   T       change target branch (:ChangeGitDiffBase)',
@@ -954,11 +954,37 @@ local function wipe_buffers(list)
     end
 end
 
--- m: add / move / copy / delete, NERDTree's menu boiled down.
+-- x in the menu: a viewer (`open`) runs in the background; anything else in
+-- a terminal split above the source window, from the file's folder, so its
+-- output stays readable.
+local function run_file(path)
+    local cmd = files.run_command(path)
+    if not cmd then
+        vim.notify('nvim-lsp-tagbar: no way to run ' .. vim.fs.basename(path), vim.log.levels.WARN)
+        return
+    end
+    if cmd[1] == 'open' or cmd[1] == 'xdg-open' then
+        vim.system(cmd, { text = true }, function(res)
+            if res.code ~= 0 then
+                vim.schedule(function()
+                    vim.notify('nvim-lsp-tagbar: ' .. vim.trim(res.stderr or 'open failed'), vim.log.levels.ERROR)
+                end)
+            end
+        end)
+        return
+    end
+    local win = target_window()
+    vim.api.nvim_set_current_win(win)
+    vim.cmd('belowright new')
+    vim.fn.jobstart(cmd, { term = true, cwd = vim.fs.dirname(path) })
+    vim.cmd('startinsert')
+end
+
+-- m: add / move / copy / delete / reveal / run, NERDTree's menu boiled down.
 local function tree_menu()
     local e = tree_entry()
     local dir = e and (e.dir and e.path or vim.fs.dirname(e.path)) or files.root
-    vim.api.nvim_echo({ { '(a)dd  (m)ove  (c)opy  (d)elete: ', 'Question' } }, false, {})
+    vim.api.nvim_echo({ { '(a)dd (m)ove (c)opy (d)elete (r)eveal (x)run: ', 'Question' } }, false, {})
     local ok, ch = pcall(vim.fn.getcharstr)
     vim.api.nvim_echo({ { '' } }, false, {})
     if not ok then
@@ -1008,6 +1034,13 @@ local function tree_menu()
             wipe_buffers(bufs)
         end
         done(err, vim.fs.dirname(e.path))
+    elseif ch == 'r' and e then
+        local err = files.reveal_in_finder(e.path)
+        if err then
+            vim.notify('nvim-lsp-tagbar: ' .. err, vim.log.levels.ERROR)
+        end
+    elseif ch == 'x' and e then
+        run_file(e.path)
     end
 end
 

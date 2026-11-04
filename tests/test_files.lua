@@ -237,4 +237,28 @@ function T.test_buf_path_keeps_symlinked_folder()
     vim.cmd('bwipeout! ' .. buf)
 end
 
+function T.test_run_command_by_extension()
+    local files = h.files()
+    h.eq({ 'bash', TREE .. '/run.sh' }, files.run_command(TREE .. '/run.sh'))
+    h.eq({ 'python3', '/x/tool.PY' }, files.run_command('/x/tool.PY'))
+end
+
+function T.test_run_command_opens_documents()
+    local files = h.files()
+    local opener = vim.fn.has('mac') == 1 and 'open' or 'xdg-open'
+    h.eq({ opener, '/x/page.html' }, files.run_command('/x/page.html'))
+end
+
+function T.test_run_command_unknown_plain_file_is_nil()
+    local files = h.files()
+    h.eq(nil, files.run_command(TREE .. '/apple.txt'))
+end
+
+function T.test_run_command_executable_without_rule_runs_as_is()
+    local files = h.files()
+    local tmp = h.copy_fixture('tree')
+    assert(vim.uv.fs_rename(tmp .. '/run.sh', tmp .. '/runme'))
+    h.eq({ tmp .. '/runme' }, files.run_command(tmp .. '/runme'))
+end
+
 return T

@@ -92,7 +92,12 @@ require('nvim-lsp-tagbar').setup({
     one level
   - `R` — re-read the tree; `I` — show / hide dotfiles
   - `m` — file menu: `a`dd (a trailing `/` makes a folder), `m`ove /
-    rename, `c`opy, `d`elete (asks first). Open buffers follow a move
+    rename, `c`opy, `d`elete (asks first), `r`eveal in Finder (macOS), or
+    `x` run it by type: `.sh` with bash, `.py` with python3, `.js` with node
+    and so on in a terminal split from the file's folder; `.html`, `.pdf`,
+    images and other documents with `open` (`xdg-open` off macOS); any other
+    file with an execute bit as is. The table is `require('nvim-lsp-tagbar.files').runners`.
+    Open buffers follow a move
   - `Y` — copy the entry's full path to the clipboard and `"` register
   - `T` — types `:ChangeGitDiffBase ` on the command line for you to finish
     (a ref, or nothing for your setup's default); the bar repaints on its

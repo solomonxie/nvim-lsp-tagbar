@@ -458,6 +458,50 @@ function M.delete(path)
     return 'could not delete ' .. path
 end
 
+-- Show the entry selected in a Finder window (macOS); returns nil on success.
+function M.reveal_in_finder(path)
+    if vim.fn.has('mac') == 0 then
+        return 'reveal in Finder is macOS only'
+    end
+    local res = vim.system({ 'open', '-R', path }, { text = true }):wait()
+    if res.code == 0 then
+        return nil
+    end
+    return vim.trim(res.stderr or 'open -R failed')
+end
+
+-- How `x` in the menu runs a file, by extension: an interpreter, or `open`
+-- for what's meant to be viewed. A file with an execute bit and no rule
+-- here is run as is.
+M.runners = {
+    sh = { 'bash' }, bash = { 'bash' }, zsh = { 'zsh' },
+    py = { 'python3' }, lua = { 'lua' }, js = { 'node' }, mjs = { 'node' }, ts = { 'npx', 'tsx' },
+    rb = { 'ruby' }, pl = { 'perl' }, php = { 'php' }, go = { 'go', 'run' },
+    html = { 'open' }, htm = { 'open' }, pdf = { 'open' }, svg = { 'open' }, png = { 'open' },
+    jpg = { 'open' }, jpeg = { 'open' }, gif = { 'open' }, webp = { 'open' }, mp3 = { 'open' },
+    mp4 = { 'open' }, mov = { 'open' }, csv = { 'open' }, xlsx = { 'open' }, docx = { 'open' },
+    pptx = { 'open' }, zip = { 'open' }, app = { 'open' },
+}
+
+-- The command `x` runs for a path, or nil when it doesn't know how. `open`
+-- only exists on macOS; xdg-open stands in elsewhere.
+function M.run_command(path)
+    local ext = (path:match('%.([^./]+)/?$') or ''):lower()
+    local runner = M.runners[ext]
+    if runner then
+        local cmd = vim.deepcopy(runner)
+        if cmd[1] == 'open' and vim.fn.has('mac') == 0 then
+            cmd[1] = 'xdg-open'
+        end
+        cmd[#cmd + 1] = path
+        return cmd
+    end
+    if M.link_kind(path) == 'exc' then
+        return { path }
+    end
+    return nil
+end
+
 -- Colors from the user's NERDTree setup; own colors rather than Diff* links,
 -- since some colorschemes' DiffChange is a near-invisible background.
 function M.set_colors()

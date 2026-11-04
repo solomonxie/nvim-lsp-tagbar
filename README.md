@@ -49,12 +49,13 @@ use 'solomonxie/nvim-lsp-tagbar'
 Plug 'solomonxie/nvim-lsp-tagbar'
 ```
 
-Works out of the box — `ft` toggles the bar. Call `setup()` only to change
-the defaults:
+No key is mapped for you: map `:LspTagbarToggle` or
+`require('nvim-lsp-tagbar').find` yourself, or set `keymap`. Call `setup()`
+only to change the defaults:
 
 ```lua
 require('nvim-lsp-tagbar').setup({
-  keymap = 'ft',   -- false to disable the default mapping
+  keymap = 'ft',   -- a key that toggles the bar; none by default
   height = 20,
   -- or a right sidebar that previews each symbol as you move over it:
   -- position = 'right', width = 40, auto_preview = true,
@@ -63,7 +64,7 @@ require('nvim-lsp-tagbar').setup({
 
 ## Usage
 
-- `ft` (or `:LspTagbarToggle`) — toggle the bar
+- `:LspTagbarToggle` (or your `keymap`) — toggle the bar
 - Inside the bar, in every view:
   - `]]` / `[[` — next / previous view, wrapping around: files (the
     [file tree](#file-tree), the default, see `default_view`) > changed (the tree with only changed files) >
@@ -124,7 +125,7 @@ require('nvim-lsp-tagbar').setup({
 
 ```lua
 {
-  keymap = 'ft',
+  keymap = nil,          -- a key to toggle the bar, e.g. 'ft'
   position = 'bottom',   -- or 'left' / 'right'
   height = 20,           -- for 'bottom'
   width = 40,            -- for 'left' / 'right'

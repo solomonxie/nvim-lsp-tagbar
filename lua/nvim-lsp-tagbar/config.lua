@@ -1,8 +1,8 @@
 local M = {}
 
 M.defaults = {
-    -- normal-mode mapping to toggle the bar; set to false to disable
-    keymap = 'ft',
+    -- normal-mode key to toggle the bar, e.g. 'ft'; none by default, so you pick your own
+    keymap = nil,
     -- where the bar opens: 'bottom' (a split of `height` lines), 'left' or 'right' (`width` columns)
     position = 'bottom',
     -- bottom split height

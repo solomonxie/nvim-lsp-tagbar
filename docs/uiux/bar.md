@@ -68,7 +68,7 @@ heading.
 
 ```lua
 {
-  keymap = 'ft',          -- false disables the mapping
+  keymap = nil,           -- a key to toggle the bar, e.g. 'ft'; none by default
   height = 20,
   heading_filetypes = { 'markdown', 'rmd', 'quarto', 'vimwiki' },
   heading_label = '[H%d]',

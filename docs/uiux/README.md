@@ -10,8 +10,8 @@ line.
 
 ```
  any buffer
-   ft  /  :LspTagbarToggle  ─▶ the bar opens at the bottom, cursor already
-   │                            on the symbol you are in
+   :LspTagbarToggle  ─▶ the bar opens at the bottom, cursor already
+   │                      on the symbol you are in
    ├ <CR>       jump to the symbol, close the bar
    ├ p          move to the enclosing symbol's line, inside the bar
    ├ q / <Esc>  close

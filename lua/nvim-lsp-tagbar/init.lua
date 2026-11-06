@@ -382,7 +382,6 @@ local function files_help_lines()
         '"   x       close parent folder',
         '"   s/i     open in vsplit / split',
         '"   p       go to parent folder',
-        '"   C       make this folder the root',
         '"   R       refresh',
         '"   I       show / hide dotfiles  [now: ' .. (files.show_hidden and 'shown' or 'hidden') .. ']',
         '"   m       menu: add / move / copy / delete / reveal in Finder / run',
@@ -812,17 +811,6 @@ local function tree_close_parent()
     render_tree(parent.path)
 end
 
--- C: this folder (or this file's folder) becomes the root.
-local function tree_set_root()
-    local e = tree_entry()
-    if not e then
-        return
-    end
-    files.root = e.dir and e.path or vim.fs.dirname(e.path)
-    render_tree()
-    vim.api.nvim_win_set_cursor(M.win, { math.min(M.help_len + 1, vim.api.nvim_buf_line_count(M.buf)), 0 })
-end
-
 local function tree_reload()
     files.invalidate_git()
     render_tree()
@@ -1210,7 +1198,6 @@ function M.open()
         i = function() tree_activate('split') end,
         O = tree_open_recursive,
         x = tree_close_parent,
-        C = tree_set_root,
         I = tree_toggle_hidden,
         m = tree_menu,
         Y = tree_yank_path,
@@ -1294,6 +1281,26 @@ function M.find()
         else
             M.refresh()
         end
+    end
+end
+
+-- From the bar, back to the window it was opened from (else another normal
+-- window in this tab), for a mapping in your own config. The bar stays open.
+function M.back()
+    local win = M.src_win
+    if not (win and vim.api.nvim_win_is_valid(win) and win ~= M.win
+            and vim.api.nvim_win_get_tabpage(win) == vim.api.nvim_get_current_tabpage()) then
+        win = nil
+        for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+            if w ~= M.win and vim.api.nvim_win_get_config(w).relative == ''
+                    and vim.bo[vim.api.nvim_win_get_buf(w)].buftype == '' then
+                win = w
+                break
+            end
+        end
+    end
+    if win then
+        vim.api.nvim_set_current_win(win)
     end
 end
 

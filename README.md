@@ -89,7 +89,6 @@ require('nvim-lsp-tagbar').setup({
   - `x` — close the folder the cursor is in
   - `s` / `i` — open the file in a vertical split / split
   - `p` — jump to the parent folder's line
-  - `C` — make the folder (or the file's folder) the root
   - `R` — re-read the tree; `I` — show / hide dotfiles
   - `m` — file menu: `a`dd (a trailing `/` makes a folder), `m`ove /
     rename, `c`opy, `d`elete (asks first), `r`eveal in Finder (macOS), or
@@ -117,6 +116,9 @@ require('nvim-lsp-tagbar').setup({
 - `require('nvim-lsp-tagbar').find()` — for your own mapping, like
   NERDTree's find: opens the bar (or jumps into it) with the current file
   revealed, e.g. `vim.keymap.set('n', 'ff', require('nvim-lsp-tagbar').find)`
+- `require('nvim-lsp-tagbar').back()` — from the bar, back to the window it
+  was opened from; the bar stays open. Map it in the bar's buffer, e.g. on
+  `FileType lsptagbar`, to make the same key go both ways
 - `:LspTagbarDebug` — print internal state (buf/win validity, jump count)
   for troubleshooting, with the bar open and cursor inside a symbol
 

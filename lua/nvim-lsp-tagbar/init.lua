@@ -1387,6 +1387,35 @@ vim.api.nvim_create_autocmd('BufEnter', {
     end,
 })
 
+-- :q (or :wq, ZZ) on the last window beside the bar quits nvim (or the tab),
+-- as it would without the bar, instead of leaving the bar alone (then an empty
+-- window). The bar goes first, so Vim's own check for unsaved changes runs on
+-- the real last window; a refused :q puts the bar back.
+vim.api.nvim_create_autocmd('QuitPre', {
+    callback = function()
+        local cur = vim.api.nvim_get_current_win()
+        if not (M.win and vim.api.nvim_win_is_valid(M.win)) or cur == M.win
+                or vim.api.nvim_win_get_tabpage(M.win) ~= vim.api.nvim_get_current_tabpage() then
+            return
+        end
+        for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+            if w ~= cur and w ~= M.win and vim.api.nvim_win_get_config(w).relative == '' then
+                return
+            end
+        end
+        local reopen = M.locked
+        M.close()
+        if reopen then
+            vim.schedule(function()
+                if vim.api.nvim_win_is_valid(cur) and not M.win then
+                    M.open()
+                    vim.api.nvim_set_current_win(cur)
+                end
+            end)
+        end
+    end,
+})
+
 -- A :bdelete or a closed diff tab can take every window beside the bar; a
 -- bar left alone in its tab closes too (checked once the close is done).
 vim.api.nvim_create_autocmd('WinClosed', {

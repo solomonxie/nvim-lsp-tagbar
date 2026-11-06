@@ -383,7 +383,6 @@ local function files_help_lines()
         '"   s/i     open in vsplit / split',
         '"   p       go to parent folder',
         '"   C       make this folder the root',
-        '"   u       root up one level',
         '"   R       refresh',
         '"   I       show / hide dotfiles  [now: ' .. (files.show_hidden and 'shown' or 'hidden') .. ']',
         '"   m       menu: add / move / copy / delete / reveal in Finder / run',
@@ -824,17 +823,6 @@ local function tree_set_root()
     vim.api.nvim_win_set_cursor(M.win, { math.min(M.help_len + 1, vim.api.nvim_buf_line_count(M.buf)), 0 })
 end
 
--- u: root up one level, the old root opened in it.
-local function tree_root_up()
-    local old = files.root
-    if not old or old == '/' then
-        return
-    end
-    files.root = vim.fs.dirname(old)
-    files.open_dirs[old] = true
-    render_tree(old)
-end
-
 local function tree_reload()
     files.invalidate_git()
     render_tree()
@@ -1223,7 +1211,6 @@ function M.open()
         O = tree_open_recursive,
         x = tree_close_parent,
         C = tree_set_root,
-        u = tree_root_up,
         I = tree_toggle_hidden,
         m = tree_menu,
         Y = tree_yank_path,

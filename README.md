@@ -89,8 +89,7 @@ require('nvim-lsp-tagbar').setup({
   - `x` — close the folder the cursor is in
   - `s` / `i` — open the file in a vertical split / split
   - `p` — jump to the parent folder's line
-  - `C` — make the folder (or the file's folder) the root; `u` — root up
-    one level
+  - `C` — make the folder (or the file's folder) the root
   - `R` — re-read the tree; `I` — show / hide dotfiles
   - `m` — file menu: `a`dd (a trailing `/` makes a folder), `m`ove /
     rename, `c`opy, `d`elete (asks first), `r`eveal in Finder (macOS), or

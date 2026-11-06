@@ -61,6 +61,7 @@ function M.buf_path(buf)
     if vim.fn.resolve(full) ~= vim.fn.resolve(real) then
         full = real
     end
+    full = M.via_cwd_link(full)
     local hook = opts().path
     if hook then
         full = hook(full) or full
@@ -68,12 +69,10 @@ function M.buf_path(buf)
     return full
 end
 
--- Git checkout of the buffer's file as reached through its path, else the
--- cwd: the nearest folder up the unresolved path holding a `.git` (a folder,
--- or a file in a worktree). Not `git rev-parse`, which resolves links.
-function M.project_root(buf)
-    local path = M.buf_path(buf)
-    local dir = path and vim.fs.dirname(path) or vim.fn.getcwd()
+-- The git checkout holding `dir`: the nearest folder up the unresolved path
+-- with a `.git` (a folder, or a file in a worktree), or the checkout a path
+-- inside a .git dir belongs to; nil outside any.
+local function checkout_of(dir)
     -- inside a git dir: the checkout it belongs to, found from a worktree's
     -- gitdir file (<checkout>/.git), else the folder holding .git
     local wt = dir:match('^(.*/%.git/worktrees/[^/]+)')
@@ -97,7 +96,85 @@ function M.project_root(buf)
         end
         dir = vim.fs.dirname(dir)
     end
-    return vim.fn.getcwd()
+    return nil
+end
+
+-- Git checkout of the buffer's file as reached through its path, else the
+-- cwd. Not `git rev-parse`, which resolves links.
+function M.project_root(buf)
+    local path = M.buf_path(buf)
+    return checkout_of(path and vim.fs.dirname(path) or vim.fn.getcwd()) or vim.fn.getcwd()
+end
+
+-- Symlinks in a checkout: tracked and untracked ones, and git-ignored ones up
+-- to one folder down an ignored folder (e.g. tmp/workfiles under an ignored
+-- tmp/). Each is { path, target } with the target fully resolved. Kept for a
+-- few seconds per checkout.
+local links_cache = {}
+local LINKS_TTL_MS = 3000
+
+local function checkout_links(root)
+    local hit = links_cache[root]
+    if hit and uv.now() - hit.at < LINKS_TTL_MS then
+        return hit.links
+    end
+    local function ls(args)
+        return vim.system(vim.list_extend({ 'git', '-C', root, 'ls-files', '-z' }, args), { text = true })
+    end
+    local tracked = ls({ '--stage' })
+    local others = ls({ '--others', '--exclude-standard' })
+    local ignored = ls({ '--others', '--ignored', '--exclude-standard', '--directory' })
+    local candidates = {}
+    -- `mode object stage<TAB>path`; 120000 is a symlink
+    for entry in (tracked:wait().stdout or ''):gmatch('[^%z]+') do
+        local rel = entry:match('^120000 %S+ %S+\t(.+)$')
+        if rel then
+            candidates[#candidates + 1] = join(root, rel)
+        end
+    end
+    for rel in (others:wait().stdout or ''):gmatch('[^%z]+') do
+        candidates[#candidates + 1] = join(root, rel)
+    end
+    for rel in (ignored:wait().stdout or ''):gmatch('[^%z]+') do
+        local path = join(root, (rel:gsub('/$', '')))
+        candidates[#candidates + 1] = path
+        local handle = uv.fs_scandir(path)
+        while handle do
+            local name = uv.fs_scandir_next(handle)
+            if not name then
+                break
+            end
+            candidates[#candidates + 1] = join(path, name)
+        end
+    end
+    local links = {}
+    for _, path in ipairs(candidates) do
+        local st = uv.fs_lstat(path)
+        if st and st.type == 'link' then
+            links[#links + 1] = { path = path, target = vim.fn.resolve(path) }
+        end
+    end
+    links_cache[root] = { at = uv.now(), links = links }
+    return links
+end
+
+-- A file outside the cwd's checkout, reached instead through a symlink in that
+-- checkout that points to it or to a folder holding it (the most specific
+-- one), so the tree stays in the cwd's repo. Any other path unchanged.
+function M.via_cwd_link(path)
+    local root = checkout_of(vim.fn.getcwd())
+    if not root or path:sub(1, #root + 1) == root .. '/' then
+        return path
+    end
+    local real = vim.fn.resolve(path)
+    local best
+    for _, link in ipairs(checkout_links(root)) do
+        local t = link.target
+        if (real == t or real:sub(1, #t + 1) == t .. '/') and (not best or #t > #best.target) then
+            best = link
+        end
+    end
+    return best and (best.path .. real:sub(#best.target + 1)) or path
 end
 
 -- Git state under a root: dirty files and the folders holding them, and

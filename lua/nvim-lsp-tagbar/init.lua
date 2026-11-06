@@ -1423,9 +1423,25 @@ vim.api.nvim_create_autocmd({ 'FocusGained', 'ShellCmdPost', 'TermLeave', 'BufWr
         if ev.event == 'FocusGained' then
             M._focused = true
         end
-        if M.win and vim.api.nvim_win_is_valid(M.win) and is_tree_view() then
+        if not (M.win and vim.api.nvim_win_is_valid(M.win)) then
+            return
+        end
+        if is_tree_view() then
             files.invalidate_git()
             render_tree(nil, true)
+        elseif M.view == 'changes' then
+            -- a commit or checkout elsewhere moves the hunks without touching the buffer
+            M.refresh()
+        end
+    end,
+})
+
+-- The bar's file was changed by another editor and nvim reloaded it (autoread +
+-- :checktime): its markers, hunks and symbols are stale, so redraw.
+vim.api.nvim_create_autocmd('FileChangedShellPost', {
+    callback = function(ev)
+        if ev.buf == M.src_buf and M.win and vim.api.nvim_win_is_valid(M.win) and not is_tree_view() then
+            M.refresh()
         end
     end,
 })

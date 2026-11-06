@@ -261,4 +261,51 @@ function T.test_run_command_executable_without_rule_runs_as_is()
     h.eq({ tmp .. '/runme' }, files.run_command(tmp .. '/runme'))
 end
 
+-- tests/fixtures/linked: repo/ (a checkout once `git init`ed in the temp copy)
+-- links to_lib -> ../other/lib and to_target.txt -> ../other/lib/target.txt;
+-- unrelated/ has no link to it. Files are opened by their real paths, as fzf,
+-- LSP jumps and gF do, with the cwd in repo/.
+local function linked_repo()
+    local tmp = vim.fn.resolve(h.copy_fixture('linked'))
+    local repo = tmp .. '/repo'
+    assert(vim.system({ 'git', '-C', repo, 'init', '-q' }):wait().code == 0)
+    return tmp, repo
+end
+
+local function root_and_path_from(cwd, file)
+    local files = h.files()
+    local old = vim.fn.getcwd()
+    vim.cmd('cd ' .. vim.fn.fnameescape(cwd))
+    vim.cmd('edit ' .. vim.fn.fnameescape(file))
+    local buf = vim.api.nvim_get_current_buf()
+    local root, path = files.project_root(buf), files.buf_path(buf)
+    vim.cmd('bwipeout! ' .. buf)
+    vim.cmd('cd ' .. vim.fn.fnameescape(old))
+    return root, path
+end
+
+function T.test_project_root_file_linked_from_cwd_repo_stays_in_it()
+    local tmp, repo = linked_repo()
+    local root, path = root_and_path_from(repo, tmp .. '/other/lib/target.txt')
+    h.eq(repo, root)
+    -- the direct file link wins over the folder link, being the closer match
+    h.eq(repo .. '/to_target.txt', path)
+end
+
+function T.test_project_root_file_under_linked_folder_goes_through_it()
+    local tmp, repo = linked_repo()
+    assert(vim.uv.fs_unlink(repo .. '/to_target.txt'))
+    local root, path = root_and_path_from(repo, tmp .. '/other/lib/target.txt')
+    h.eq(repo, root)
+    h.eq(repo .. '/to_lib/target.txt', path)
+end
+
+function T.test_project_root_unlinked_file_keeps_its_own_root()
+    local tmp, repo = linked_repo()
+    assert(vim.system({ 'git', '-C', tmp .. '/unrelated', 'init', '-q' }):wait().code == 0)
+    local root, path = root_and_path_from(repo, tmp .. '/unrelated/file.txt')
+    h.eq(tmp .. '/unrelated', root)
+    h.eq(tmp .. '/unrelated/file.txt', path)
+end
+
 return T

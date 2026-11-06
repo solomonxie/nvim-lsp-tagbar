@@ -272,7 +272,11 @@ the git checkout of the file you opened the bar from — the nearest folder
 up its path with a `.git` (a git worktree counts), else the cwd — and
 opens with that file revealed and the cursor on it. Symlinked folders are
 never resolved: a file opened through one shows under it, as if it were a
-plain folder. Folders you open stay open for the session.
+plain folder. A file outside the cwd's checkout that a symlink in it points
+to (the file itself or a folder holding it) also stays in the cwd's tree,
+shown through that link, even when it was opened by its real path (fzf, an
+LSP jump, `gF`). Otherwise the tree moves to the file's own checkout.
+Folders you open stay open for the session.
 
 The `changed` view is the same tree showing only the files that differ from
 the git base, plus untracked ones, with every folder holding one opened,

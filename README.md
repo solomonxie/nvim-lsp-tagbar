@@ -25,7 +25,7 @@ plugin dependency.
   [Git changes](#git-changes)), and the `changed` view is the file tree cut
   down to the files that differ from the git base.
 - `]]` / `[[` step through the views: files > changed > symbols > markers >
-  changes.
+  changes; `F` / `C` / `S` / `M` / `D` go straight to one.
 
 ## Requirements
 
@@ -71,6 +71,8 @@ require('nvim-lsp-tagbar').setup({
     symbols > [markers](#markers) (flat) > [changes](#git-changes) (this
     buffer's git hunks, flat). The view is kept for the session; the winbar
     shows which one you're in
+  - `F` / `C` / `S` / `M` / `D` — go straight to files / changed / symbols /
+    markers / changes (diff)
   - `?` — show / hide a quick help above the tree: these keys, the
     current view, the marker patterns for this filetype, and where the
     entries come from (which LSP servers, treesitter queries, markers)
@@ -263,7 +265,7 @@ The scan runs once per edit, memoised like the queries above.
 
 Press `]]` / `[[` in the bar to step through the views: files, changed, symbols
 (with your [treesitter queries](#custom-entries) merged in), markers and
-changes. The current view's name is shown in the bar's winbar, and the bar
+changes, or jump to one with `F` / `C` / `S` / `M` / `D`. The current view's name is shown in the bar's winbar, and the bar
 reopens in the last view used until nvim exits.
 
 ## File tree

@@ -134,6 +134,17 @@ local function build_lines(list, depth, parent_idx, lines, jumps)
     end
 end
 
+-- A window split off the bar, or the bar turned back into a plain window, would keep the
+-- bar's window options (no line numbers, wrap, ...): put back the global values.
+local BAR_WIN_OPTS = { 'number', 'relativenumber', 'wrap', 'linebreak', 'breakindent',
+    'breakindentopt', 'winfixwidth', 'winfixheight', 'winbar' }
+
+local function reset_win_opts(win)
+    for _, name in ipairs(BAR_WIN_OPTS) do
+        vim.api.nvim_set_option_value(name, vim.go[name], { scope = 'local', win = win })
+    end
+end
+
 function M.close()
     -- undo a caller preview left in the source window
     if M.src_win and vim.api.nvim_win_is_valid(M.src_win) and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf)
@@ -151,9 +162,9 @@ function M.close()
     M.win, M.buf = nil, nil
     if win and vim.api.nvim_win_is_valid(win) and not pcall(vim.api.nvim_win_close, win, true) then
         -- the last window left can't be closed: turn it back into a plain empty window
-        vim.wo[win].winfixbuf = false
-        vim.wo[win].winbar = ''
+        vim.wo[win][0].winfixbuf = false
         vim.api.nvim_win_call(win, vim.cmd.enew)
+        reset_win_opts(win)
     end
 end
 
@@ -389,6 +400,7 @@ local function files_help_lines()
         '"   gn/gp   next / previous changed file',
         '"   T       change target branch (:ChangeGitDiffBase)',
         '"   ]] / [[  next / previous view: ' .. table.concat(VIEWS, ' > ') .. '  [now: ' .. M.view .. ']',
+        '"   F/C/S/M/D  view: files / changed / symbols / marks / diff',
         '"   !       lock: stay open on open / leave  [now: ' .. (M.locked and 'locked' or 'unlocked') .. ']',
         '"   q       close',
         '" Colors vs ' .. hunks.base_label(),
@@ -411,6 +423,7 @@ local function help_lines()
         '"   p     go to parent symbol',
         '"   o     show / hide callers',
         '"   ]] / [[  next / previous view: ' .. table.concat(VIEWS, ' > ') .. '  [now: ' .. M.view .. ']',
+        '"   F/C/S/M/D  view: files / changed / symbols / marks / diff',
         '"   !     lock: stay open on jump / leave  [now: ' .. (M.locked and 'locked' or 'unlocked') .. ']',
         '"   q     close',
         '" Custom tags',
@@ -610,7 +623,7 @@ local function set_title()
     end
     -- a wrapped name continues under its first letter: past the `▸ ` arrow in
     -- the tree, past the `[F] ` label in the symbol views
-    vim.wo[M.win].breakindentopt = 'shift:' .. (is_tree_view() and 2 or 4)
+    vim.wo[M.win][0].breakindentopt = 'shift:' .. (is_tree_view() and 2 or 4)
     -- a tab strip of the views, the current one highlighted; `]]` / `[[` move along it
     local parts = {}
     for _, view in ipairs(VIEWS) do
@@ -618,7 +631,7 @@ local function set_title()
         parts[#parts + 1] = ('%%#%s# %s '):format(group, VIEW_TITLES[view])
     end
     local lock = M.locked and '%#lsptagbarLocked# locked ' or ''
-    vim.wo[M.win].winbar = lock .. table.concat(parts, '%#lsptagbarTab#') .. '%#lsptagbarTab#'
+    vim.wo[M.win][0].winbar = lock .. table.concat(parts, '%#lsptagbarTab#') .. '%#lsptagbarTab#'
 end
 
 -- The file tree entry under the bar's cursor, if any.
@@ -723,8 +736,10 @@ local function target_window()
     end
     local empty = vim.api.nvim_create_buf(true, false)
     vim.bo[empty].bufhidden = 'wipe'
-    return vim.api.nvim_open_win(empty, false,
+    local win = vim.api.nvim_open_win(empty, false,
         { split = ({ left = 'right', right = 'left' })[config.options.position] or 'above', win = -1 })
+    reset_win_opts(win)
+    return win
 end
 
 -- how: nil (in the source window), 'vsplit', 'split', or 'preview'
@@ -1080,6 +1095,14 @@ local function cycle_view(step)
     M.refresh()
 end
 
+-- F/C/S/M/D in the bar: straight to a view
+local VIEW_KEYS = { F = 'files', C = 'changed', S = 'symbols', M = 'markers', D = 'changes' }
+
+local function set_view(view)
+    M.view = view
+    M.refresh()
+end
+
 function M.refresh()
     if not (M.buf and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf)) then
         return
@@ -1161,19 +1184,19 @@ function M.open()
     vim.bo[M.buf].buftype = 'nofile'
     vim.bo[M.buf].bufhidden = 'wipe'
     vim.bo[M.buf].filetype = 'lsptagbar'
-    vim.wo[M.win].number = false
+    vim.wo[M.win][0].number = false
     -- long names wrap at the window edge, continued under where the name starts
-    vim.wo[M.win].wrap = true
-    vim.wo[M.win].linebreak = false
-    vim.wo[M.win].breakindent = true
+    vim.wo[M.win][0].wrap = true
+    vim.wo[M.win][0].linebreak = false
+    vim.wo[M.win][0].breakindent = true
     -- Without this, any later window-layout change ('<C-w>=', a new split,
     -- closing a window) re-equalizes every window and the bar loses its
     -- configured size.
     local side = config.options.position == 'left' or config.options.position == 'right'
-    vim.wo[M.win].winfixheight = not side
-    vim.wo[M.win].winfixwidth = side
+    vim.wo[M.win][0].winfixheight = not side
+    vim.wo[M.win][0].winfixwidth = side
     -- :bn, :bp, :e and the like would otherwise load another buffer into the bar
-    vim.wo[M.win].winfixbuf = true
+    vim.wo[M.win][0].winfixbuf = true
 
     local opts = { buffer = M.buf, silent = true, nowait = true }
     -- file tree keys; in the symbol views the first ones keep their old meaning, the rest do nothing
@@ -1209,6 +1232,9 @@ function M.open()
     end
     vim.keymap.set('n', ']]', function() cycle_view(1) end, opts)
     vim.keymap.set('n', '[[', function() cycle_view(-1) end, opts)
+    for lhs, view in pairs(VIEW_KEYS) do
+        vim.keymap.set('n', lhs, function() set_view(view) end, opts)
+    end
     vim.keymap.set('n', '?', toggle_help, opts)
     vim.keymap.set('n', '!', M.toggle_lock, opts)
     -- T: start the command that changes the git base, left on the command line to finish typing

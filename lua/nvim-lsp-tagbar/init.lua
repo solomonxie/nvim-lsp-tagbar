@@ -158,13 +158,15 @@ function M.close()
         M._timer:close()
         M._timer = nil
     end
-    local win = M.win
+    local win, buf = M.win, M.buf
     M.win, M.buf = nil, nil
     if win and vim.api.nvim_win_is_valid(win) and not pcall(vim.api.nvim_win_close, win, true) then
         -- the last window left can't be closed: turn it back into a plain empty window
-        vim.wo[win][0].winfixbuf = false
         vim.api.nvim_win_call(win, vim.cmd.enew)
         reset_win_opts(win)
+    end
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
 end
 
@@ -626,9 +628,10 @@ local function set_title()
     vim.wo[M.win][0].breakindentopt = 'shift:' .. (is_tree_view() and 2 or 4)
     -- a tab strip of the views, the current one highlighted; `]]` / `[[` move along it
     local parts = {}
-    for _, view in ipairs(VIEWS) do
+    for idx, view in ipairs(VIEWS) do
         local group = view == M.view and 'lsptagbarTabSel' or 'lsptagbarTab'
-        parts[#parts + 1] = ('%%#%s# %s '):format(group, VIEW_TITLES[view])
+        -- %<n>@...@ ... %X: a mouse click on the name calls the handler with n
+        parts[#parts + 1] = ('%%%d@v:lua.LspTagbarClickView@%%#%s# %s %%X'):format(idx, group, VIEW_TITLES[view])
     end
     local lock = M.locked and '%#lsptagbarLocked# locked ' or ''
     vim.wo[M.win][0].winbar = lock .. table.concat(parts, '%#lsptagbarTab#') .. '%#lsptagbarTab#'
@@ -1015,7 +1018,14 @@ local function tree_menu()
                     return
                 end
                 local to = (absolute(input):gsub('/$', ''))
-                done(ch == 'm' and files.move(e.path, to) or files.copy(e.path, to), to)
+                -- not `and/or`: a successful move returns nil, which would run the copy too
+                local err
+                if ch == 'm' then
+                    err = files.move(e.path, to)
+                else
+                    err = files.copy(e.path, to)
+                end
+                done(err, to)
             end)
     elseif ch == 'd' and e then
         if vim.fn.confirm('Delete ' .. e.path .. (e.dir and ' and everything in it' or '') .. '?', '&Yes\n&No', 2) ~= 1 then
@@ -1103,6 +1113,13 @@ local function set_view(view)
     M.refresh()
 end
 
+-- a click on a view's name in the winbar (statusline click handlers must be global)
+function _G.LspTagbarClickView(idx, _, button)
+    if button == 'l' and VIEWS[idx] then
+        set_view(VIEWS[idx])
+    end
+end
+
 function M.refresh()
     if not (M.buf and M.src_buf and vim.api.nvim_buf_is_valid(M.src_buf)) then
         return
@@ -1182,7 +1199,9 @@ function M.open()
     vim.api.nvim_win_set_buf(M.win, M.buf)
 
     vim.bo[M.buf].buftype = 'nofile'
-    vim.bo[M.buf].bufhidden = 'wipe'
+    -- hidden, not wiped, when another buffer lands in the bar for a moment (see BufWinEnter
+    -- below); close() deletes it
+    vim.bo[M.buf].bufhidden = 'hide'
     vim.bo[M.buf].filetype = 'lsptagbar'
     vim.wo[M.win][0].number = false
     -- long names wrap at the window edge, continued under where the name starts
@@ -1195,8 +1214,6 @@ function M.open()
     local side = config.options.position == 'left' or config.options.position == 'right'
     vim.wo[M.win][0].winfixheight = not side
     vim.wo[M.win][0].winfixwidth = side
-    -- :bn, :bp, :e and the like would otherwise load another buffer into the bar
-    vim.wo[M.win][0].winfixbuf = true
 
     local opts = { buffer = M.buf, silent = true, nowait = true }
     -- file tree keys; in the symbol views the first ones keep their old meaning, the rest do nothing
@@ -1413,6 +1430,31 @@ vim.api.nvim_create_autocmd('BufEnter', {
     end,
 })
 
+-- :e, :bn, fzf's :Files and the like run with focus in the bar open their buffer in the
+-- source window instead (the window the bar was opened from, else another normal one),
+-- and the bar gets its own buffer back. Scheduled: the :edit is still running here.
+vim.api.nvim_create_autocmd('BufWinEnter', {
+    callback = function(ev)
+        if not (M.win and M.buf) or ev.buf == M.buf or vim.api.nvim_get_current_win() ~= M.win then
+            return
+        end
+        local bar_win, bar_buf = M.win, M.buf
+        vim.schedule(function()
+            if M.win ~= bar_win or not vim.api.nvim_win_is_valid(bar_win) or not vim.api.nvim_buf_is_valid(bar_buf)
+                    or vim.api.nvim_win_get_buf(bar_win) ~= ev.buf or not vim.api.nvim_buf_is_valid(ev.buf) then
+                return
+            end
+            -- the bar's buffer back first, so the follow (BufEnter above) sees a whole bar
+            local win = target_window()
+            M._previewing = true
+            vim.api.nvim_win_set_buf(bar_win, bar_buf)
+            M._previewing = false
+            vim.api.nvim_set_current_win(win)
+            vim.api.nvim_win_set_buf(win, ev.buf)
+        end)
+    end,
+})
+
 -- :q (or :wq, ZZ) on the last window beside the bar quits nvim (or the tab),
 -- as it would without the bar, instead of leaving the bar alone (then an empty
 -- window). The bar goes first, so Vim's own check for unsaved changes runs on
@@ -1467,7 +1509,7 @@ vim.api.nvim_create_autocmd('FocusLost', {
         M._focused = false
     end,
 })
-vim.api.nvim_create_autocmd({ 'FocusGained', 'ShellCmdPost', 'TermLeave', 'BufWritePost' }, {
+vim.api.nvim_create_autocmd({ 'FocusGained', 'ShellCmdPost', 'TermLeave', 'BufWritePost', 'BufFilePost' }, {
     callback = function(ev)
         if ev.event == 'FocusGained' then
             M._focused = true

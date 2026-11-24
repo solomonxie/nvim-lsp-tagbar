@@ -73,6 +73,7 @@ require('nvim-lsp-tagbar').setup({
     shows which one you're in
   - `F` / `C` / `S` / `M` / `D` — go straight to files / changed / symbols /
     markers / changes (diff)
+  - click a view's name in the winbar (needs `mouse` on) — go straight to it
   - `?` — show / hide a quick help above the tree: these keys, the
     current view, the marker patterns for this filetype, and where the
     entries come from (which LSP servers, treesitter queries, markers)
@@ -80,8 +81,8 @@ require('nvim-lsp-tagbar').setup({
     while it's on (see [File tree](#file-tree))
   - `q` / `<Esc>` — close the bar; with `auto_close` (the default) it also
     closes as soon as focus moves to another window, unless locked
-  - `:bn`, `:bp`, `:e` and the like are refused in the bar (`winfixbuf`), so
-    it never shows another buffer
+  - `:e`, `:bn`, a fuzzy finder's file pick and the like, run with focus in
+    the bar, open the file in the source window instead; the bar keeps its tree
 - In the file tree (`files` and `changed` views):
   - `<CR>` / `o` / double click — open the file, or open / close the folder
   - `go` — preview the file in the source window, keeping the bar
